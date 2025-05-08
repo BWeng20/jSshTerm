@@ -1,3 +1,10 @@
+/**
+ * Copyright 2025, Bernd Wengenroth.
+ *
+ * This is free and unencumbered software released into the public domain.
+ * Check LICENSE for details.
+ */
+
 package com.bw.sshTerm;
 
 import com.jcraft.jsch.ChannelShell;
