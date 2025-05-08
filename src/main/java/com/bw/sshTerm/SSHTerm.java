@@ -204,8 +204,8 @@ public class SSHTerm extends JPanel {
 
         try {
             JSch jsch = new JSch();
-            Session session = jsch.getSession("bernd", "127.0.0.1", 22);
-            session.setPassword("bernd");
+            Session session = jsch.getSession("user", "127.0.0.1", 22);
+            session.setPassword("password");
             session.setConfig("StrictHostKeyChecking", "no");
             session.connect();
             term.connect((ChannelShell) session.openChannel("shell"));
