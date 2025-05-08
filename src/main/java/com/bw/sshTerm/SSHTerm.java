@@ -1,6 +1,5 @@
 /**
  * Copyright 2025, Bernd Wengenroth.
- *
  * This is free and unencumbered software released into the public domain.
  * Check LICENSE for details.
  */
@@ -39,7 +38,7 @@ public class SSHTerm extends JPanel {
     private final JScrollPane scroller;
     private final JLabel placeholder;
     private ChannelShell channel;
-    private byte[] line = new byte[1000];
+    private final byte[] line = new byte[1000];
     private int lineEnd = 0;
     private int caret = 0;
     private int currentLineOffset = 0;
@@ -122,7 +121,6 @@ public class SSHTerm extends JPanel {
                                     }
                                 }
                             }
-                            ;
                             inputToShell.flush();
                         }
                     } catch (Exception ex) {
@@ -197,23 +195,14 @@ public class SSHTerm extends JPanel {
             int bytesRead;
             Document d = text.getDocument();
             while ((bytesRead = shellOutput.read(buffer)) != -1) {
-                int o = 0;
                 for (int i = 0; i < bytesRead; ++i) {
                     byte b = buffer[i];
                     switch (b) {
                         case -1, 7 -> {
                         }
-                        case 13 -> {
-                            caret = 0;
-                        }
+                        case 13 ->  caret = 0;
                         case 8 -> {
-                            if (caret > 0)
-                                caret--;
-                        }
-                        default -> {
-                            line[caret++] = b;
-                            if (caret > lineEnd)
-                                lineEnd = caret;
+                            if (caret > 0) caret--;
                         }
                         case 10 -> {
                             line[lineEnd++] = b;
@@ -222,6 +211,11 @@ public class SSHTerm extends JPanel {
                             currentLineOffset = d.getLength();
                             caret = 0;
                             lineEnd = 0;
+                        }
+                        default -> {
+                            line[caret++] = b;
+                            if (caret > lineEnd)
+                                lineEnd = caret;
                         }
                     }
                 }
