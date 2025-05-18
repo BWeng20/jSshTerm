@@ -72,17 +72,23 @@ public class SSHTerm extends JPanel {
                         if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
                             try {
                                 switch (e.getKeyCode()) {
+                                    case KeyEvent.VK_A:
+                                        inputToShell.write(1); // Start of Heading (SOH)
+                                        break;
                                     case KeyEvent.VK_C:
                                         inputToShell.write(3); // SIGINT
                                         break;
                                     case KeyEvent.VK_D:
-                                        inputToShell.write(4); // EOF
+                                        inputToShell.write(4); // End of Transmission (EOT)
+                                        break;
+                                    case KeyEvent.VK_E:
+                                        inputToShell.write(5); // Enquiry (ENQ
                                         break;
                                     case KeyEvent.VK_Z:
                                         inputToShell.write(26); // Suspend (SIGTSTP)
                                         break;
                                     case KeyEvent.VK_L:
-                                        inputToShell.write(12); // FormFeed (Seitenumbruch)
+                                        inputToShell.write(12); // FormFeed
                                         break;
                                     case KeyEvent.VK_LEFT:
                                         inputToShell.write("\033[1;5D".getBytes()); // Left
@@ -107,15 +113,16 @@ public class SSHTerm extends JPanel {
                             }
                         } else {
                             switch (e.getKeyCode()) {
-                                case KeyEvent.VK_UP -> inputToShell.write("\033[A".getBytes()); // Up
-                                case KeyEvent.VK_DOWN -> inputToShell.write("\033[B".getBytes()); // Up
-                                case KeyEvent.VK_HOME -> inputToShell.write("\033[1~".getBytes()); // Home
-                                case KeyEvent.VK_END -> inputToShell.write("\033[4~".getBytes()); // End
-                                case KeyEvent.VK_LEFT -> inputToShell.write("\033[D".getBytes()); // Left
-                                case KeyEvent.VK_RIGHT -> inputToShell.write("\033[C".getBytes()); // Left
+                                case KeyEvent.VK_UP -> inputToShell.write("\033[A".getBytes());
+                                case KeyEvent.VK_DOWN -> inputToShell.write("\033[B".getBytes());
+                                case KeyEvent.VK_RIGHT -> inputToShell.write("\033[C".getBytes());
+                                case KeyEvent.VK_LEFT -> inputToShell.write("\033[D".getBytes());
+                                case KeyEvent.VK_HOME -> inputToShell.write("\033[1~".getBytes());
+                                case KeyEvent.VK_DELETE -> inputToShell.write("\033[3~".getBytes());
+                                case KeyEvent.VK_END -> inputToShell.write("\033[4~".getBytes());
+                                case KeyEvent.VK_BACK_SPACE -> inputToShell.write(8);
                                 default -> {
                                     char c = e.getKeyChar();
-                                    System.out.print(">" + (int) c);
                                     if (c < 256) {
                                         inputToShell.write(c);
                                     }
