@@ -12,14 +12,10 @@ import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
 
 import javax.swing.*;
-import javax.swing.text.DefaultCaret;
-import javax.swing.text.Document;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
@@ -34,16 +30,14 @@ import java.nio.charset.StandardCharsets;
  */
 public class SSHTerm extends JPanel {
 
-    private final JTextArea text = new JTextArea();
-    private final JScrollPane scroller;
+    //private final JScrollPane scroller;
     private final JLabel placeholder;
+    String CSI = "\033[";
     private ChannelShell channel;
-    private final byte[] line = new byte[1000];
-    private int lineEnd = 0;
-    private int caret = 0;
-    private int currentLineOffset = 0;
     private OutputStream inputToShell;
     private InputStream shellOutput;
+    private TerminalControl ctrl = new TerminalControl();
+    private TerminalPane pane = new TerminalPane();
 
     /**
      * Create a new terminal. To start a session use {@link #connect}.
@@ -51,102 +45,64 @@ public class SSHTerm extends JPanel {
     public SSHTerm() {
         super(new BorderLayout());
 
+
         placeholder = new JLabel("<html><h3><i>Not connected</i></h3></html>", JLabel.CENTER);
         add(BorderLayout.CENTER, placeholder);
+        // scroller = new JScrollPane(text);
 
-        text.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        // scroller.addComponentListener(new ComponentAdapter() {
+        //  @Override
+        //     public void componentResized(ComponentEvent e) {
+        //         pane.updateTerminalSpecs();
+        //     }
+        // });
+    }
 
-        DefaultCaret caret = (DefaultCaret) text.getCaret();
-        caret.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+    /**
+     * Example for usage of SSHTerm.
+     */
+    public static void main(String[] args) {
 
-        scroller = new JScrollPane(text);
+        JFrame frame = new JFrame("Term");
+        frame.setLayout(new BorderLayout());
 
-        text.addKeyListener(new KeyAdapter() {
+        SSHTerm term = new SSHTerm();
 
+        JScrollPane scroller = new JScrollPane(term);
+        scroller.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_ALWAYS);
+        scroller.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+
+        frame.add(BorderLayout.CENTER, scroller);
+        frame.add(BorderLayout.SOUTH, new JTextArea("AAA"));
+        frame.setPreferredSize(new Dimension(500, 500));
+        frame.pack();
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setLocationByPlatform(true);
+
+        frame.addWindowListener(new WindowAdapter() {
             @Override
-            public void keyPressed(KeyEvent e) {
-                // TODO: We need to know if the sequences are supported by the terminal...
-
-                if (channel != null) {
-                    try {
-                        if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0) {
-                            try {
-                                switch (e.getKeyCode()) {
-                                    case KeyEvent.VK_A:
-                                        inputToShell.write(1); // Start of Heading (SOH)
-                                        break;
-                                    case KeyEvent.VK_C:
-                                        inputToShell.write(3); // SIGINT
-                                        break;
-                                    case KeyEvent.VK_D:
-                                        inputToShell.write(4); // End of Transmission (EOT)
-                                        break;
-                                    case KeyEvent.VK_E:
-                                        inputToShell.write(5); // Enquiry (ENQ
-                                        break;
-                                    case KeyEvent.VK_Z:
-                                        inputToShell.write(26); // Suspend (SIGTSTP)
-                                        break;
-                                    case KeyEvent.VK_L:
-                                        inputToShell.write(12); // FormFeed
-                                        break;
-                                    case KeyEvent.VK_LEFT:
-                                        inputToShell.write("\033[1;5D".getBytes()); // Left
-                                        break;
-                                    case KeyEvent.VK_RIGHT:
-                                        inputToShell.write("\033[1;5C".getBytes()); // Right
-                                        break;
-                                    case KeyEvent.VK_V:
-                                        try {
-                                            String clipboardText = getClipboardContents();
-                                            inputToShell.write(clipboardText.getBytes(StandardCharsets.US_ASCII));
-                                        } catch (IOException ex) {
-                                            ex.printStackTrace();
-                                        }
-                                    default:
-                                        break;
-                                }
-                                inputToShell.flush();
-                                e.consume();
-                            } catch (IOException ex) {
-                                ex.printStackTrace();
-                            }
-                        } else {
-                            switch (e.getKeyCode()) {
-                                case KeyEvent.VK_UP -> inputToShell.write("\033[A".getBytes());
-                                case KeyEvent.VK_DOWN -> inputToShell.write("\033[B".getBytes());
-                                case KeyEvent.VK_RIGHT -> inputToShell.write("\033[C".getBytes());
-                                case KeyEvent.VK_LEFT -> inputToShell.write("\033[D".getBytes());
-                                case KeyEvent.VK_HOME -> inputToShell.write("\033[1~".getBytes());
-                                case KeyEvent.VK_DELETE -> inputToShell.write("\033[3~".getBytes());
-                                case KeyEvent.VK_END -> inputToShell.write("\033[4~".getBytes());
-                                case KeyEvent.VK_BACK_SPACE -> inputToShell.write(8);
-                                default -> {
-                                    char c = e.getKeyChar();
-                                    if (c < 256) {
-                                        inputToShell.write(c);
-                                    }
-                                }
-                            }
-                            inputToShell.flush();
-                        }
-                    } catch (Exception ex) {
-                        ex.printStackTrace();
-                    }
-                }
-                e.consume();
-            }
-
-            @Override
-            public void keyReleased(KeyEvent e) {
-                e.consume();
-            }
-
-            @Override
-            public void keyTyped(KeyEvent e) {
-                e.consume();
+            public void windowClosing(WindowEvent e) {
+                term.disconnect();
+                super.windowClosing(e);
             }
         });
+
+        frame.setVisible(true);
+
+        try {
+            JSch jsch = new JSch();
+            UserInfo userInfo = new UserInfo(term);
+            Session session = // jsch.getSession(userInfo.getUserName(), "127.0.0.1", 22);
+                    jsch.getSession("bernd", "127.0.0.1", 22);
+            session.setPassword("bernd");
+            session.setUserInfo(userInfo);
+            session.setConfig("StrictHostKeyChecking", "no");
+            session.connect();
+            term.connect((ChannelShell) session.openChannel("shell"));
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
     }
 
     protected String getClipboardContents() {
@@ -181,54 +137,57 @@ public class SSHTerm extends JPanel {
     public void connect(ChannelShell channel) throws IOException, JSchException {
         this.channel = channel;
         channel.setPty(true);
-        channel.setPtyType("dumb");
+        channel.setPtyType(ctrl.getPtyType());
+        add(BorderLayout.CENTER, pane);
+        revalidate();
+        pane.updateTerminalSpecs();
+
         shellOutput = channel.getInputStream();
         inputToShell = channel.getOutputStream();
         channel.connect();
+
+        remove(placeholder);
+        pane.requestFocusInWindow();
+        ctrl.install(this, pane);
+
         Thread rt = new Thread(this::readShellOutput);
         rt.setDaemon(true);
         rt.start();
-
-        remove(placeholder);
-        remove(scroller);
-        add(BorderLayout.CENTER, scroller);
-        text.setEditable(true);
-        revalidate();
     }
+
+    public void write(int data) {
+        if (channel != null) {
+            try {
+                inputToShell.write(data);
+                inputToShell.flush();
+            } catch (IOException ioe) {
+                ioe.printStackTrace();
+            }
+        }
+    }
+
+    public void write(String data) {
+        write(data.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    public void write(byte[] data) {
+        if (channel != null) {
+            try {
+                inputToShell.write(data);
+                inputToShell.flush();
+            } catch (IOException ioe) {
+                ioe.printStackTrace();
+            }
+        }
+    }
+
 
     protected void readShellOutput() {
         try {
             byte[] buffer = new byte[1024];
             int bytesRead;
-            Document d = text.getDocument();
             while ((bytesRead = shellOutput.read(buffer)) != -1) {
-                for (int i = 0; i < bytesRead; ++i) {
-                    byte b = buffer[i];
-                    switch (b) {
-                        case -1, 7 -> {
-                        }
-                        case 13 ->  caret = 0;
-                        case 8 -> {
-                            if (caret > 0) caret--;
-                        }
-                        case 10 -> {
-                            line[lineEnd++] = b;
-                            d.remove(currentLineOffset, d.getLength() - currentLineOffset);
-                            d.insertString(d.getLength(), new String(line, 0, lineEnd), null);
-                            currentLineOffset = d.getLength();
-                            caret = 0;
-                            lineEnd = 0;
-                        }
-                        default -> {
-                            line[caret++] = b;
-                            if (caret > lineEnd)
-                                lineEnd = caret;
-                        }
-                    }
-                }
-                d.remove(currentLineOffset, d.getLength() - currentLineOffset);
-                d.insertString(d.getLength(), new String(line, 0, lineEnd), null);
-                text.setCaretPosition(currentLineOffset + caret);
+                ctrl.handleShellOutput(buffer, bytesRead);
             }
             System.out.println("Connection terminated");
         } catch (Exception ex) {
@@ -243,49 +202,14 @@ public class SSHTerm extends JPanel {
         if (this.channel != null) {
             this.channel.disconnect();
             this.channel = null;
-            text.setEditable(false);
-            remove(scroller);
+            // remove(scroller);
             add(BorderLayout.CENTER, placeholder);
         }
     }
 
-    /**
-     * Example for usage of SSHTerm.
-     */
-    public static void main(String[] args) {
 
-        JFrame frame = new JFrame("Term");
-        frame.setLayout(new BorderLayout());
-
-        SSHTerm term = new SSHTerm();
-        frame.add(BorderLayout.CENTER, term);
-        frame.setPreferredSize(new Dimension(500, 500));
-        frame.pack();
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setLocationByPlatform(true);
-
-        frame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                term.disconnect();
-                super.windowClosing(e);
-            }
-        });
-
-        frame.setVisible(true);
-
-        try {
-            JSch jsch = new JSch();
-            UserInfo userInfo = new UserInfo(term);
-            Session session = jsch.getSession(userInfo.getUserName(), "127.0.0.1", 22);
-            session.setUserInfo(userInfo);
-            session.setConfig("StrictHostKeyChecking", "no");
-            session.connect();
-            term.connect((ChannelShell) session.openChannel("shell"));
-
-        } catch (Exception ex) {
-            ex.printStackTrace();
-        }
+    public void setPtySize(int termWidth, int termHeight, int charWidth, int charHeight) {
+        if (channel != null)
+            channel.setPtySize(termWidth, termHeight, charWidth, charHeight);
     }
-
 }
