@@ -1,11 +1,11 @@
-package com.bw.sshTerm;
+package com.bw.sshTerm.jsch;
 
 import javax.swing.*;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 
 /**
- * Example for usage of com.jcraft.jsch.UserInfo,
+ * Implements com.jcraft.jsch.UserInfo to provide login data.
  */
 public class UserInfo implements com.jcraft.jsch.UserInfo {
 
@@ -20,6 +20,10 @@ public class UserInfo implements com.jcraft.jsch.UserInfo {
     @Override
     public String getPassword() {
         return passwd;
+    }
+
+    public void setPassword(String passwd) {
+        this.passwd = passwd;
     }
 
     @Override
@@ -55,7 +59,7 @@ public class UserInfo implements com.jcraft.jsch.UserInfo {
 
     @Override
     public String getPassphrase() {
-        return null;
+        return passwd;
     }
 
     @Override
@@ -72,5 +76,9 @@ public class UserInfo implements com.jcraft.jsch.UserInfo {
         if (user == null)
             user = JOptionPane.showInputDialog(parent, "Enter User Name:", "Enter User", JOptionPane.QUESTION_MESSAGE);
         return user;
+    }
+
+    public void setUserName(String name) {
+        this.user = name;
     }
 }
