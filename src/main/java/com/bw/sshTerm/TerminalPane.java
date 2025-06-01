@@ -9,6 +9,7 @@ import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 public class TerminalPane extends JComponent {
 
@@ -22,6 +23,7 @@ public class TerminalPane extends JComponent {
      */
     public final static String PROPERTY_TERM_SIZE = "termSize";
     public List<char[]> term = new ArrayList<>(100);
+    public boolean showCursor = true;
     protected int charWidth;
     protected int charHeight;
     protected int termWidth;
@@ -30,6 +32,7 @@ public class TerminalPane extends JComponent {
     int caretY = 0;
     int caretX = 0;
     char[][] lines = new char[0][0];
+    private String title = null;
 
     public TerminalPane() {
         super();
@@ -70,7 +73,7 @@ public class TerminalPane extends JComponent {
         repaint();
     }
 
-    public void setCaret(int x, int y) {
+    public void setCaretAbsolute(int x, int y) {
         if (x < 0) x = 0;
         if (y < 0) y = 0;
         caretX = x;
@@ -100,7 +103,11 @@ public class TerminalPane extends JComponent {
                 l = Arrays.copyOf(l, x + 10);
                 term.set(y, l);
             }
-            l[x] = b;
+            System.out.println("char (" + x + "," + y + ")=" + b);
+            l[x--] = b;
+            while (x >= 0 && l[x] == 0) {
+                l[x--] = ' ';
+            }
             // TODO
             repaint();
         } catch (Exception e) {
@@ -132,7 +139,8 @@ public class TerminalPane extends JComponent {
                 g2.drawChars(line, 0, Math.min(termWidth, line.length), x, y);
                 y += charHeight;
             }
-            g2.drawRect(x + caretX * charWidth, caretY * charHeight, charWidth, charHeight);
+            if (showCursor)
+                g2.drawRect(x + caretX * charWidth, caretY * charHeight, charWidth, charHeight);
         } finally {
             g2.dispose();
         }
@@ -141,7 +149,6 @@ public class TerminalPane extends JComponent {
     public int[] getTermSizes() {
         return new int[]{termWidth, termHeight, charWidth, charHeight};
     }
-
 
     protected void updateTerminalSpecs() {
         FontMetrics metrics = getFontMetrics(getFont());
@@ -152,9 +159,9 @@ public class TerminalPane extends JComponent {
 
         Dimension d = getSize();
         if (d.width < 100)
-            d.width = newCharWidth * 120;
+            d.width = newCharWidth * 100;
         if (d.height < 100)
-            d.height = newCharHeight * 100;
+            d.height = newCharHeight * 40;
 
         int newTermWitdh = d.width / newCharWidth;
         int newTermHeight = d.height / newCharHeight;
@@ -204,5 +211,16 @@ public class TerminalPane extends JComponent {
         }
         line[caretX] = c;
         repaint();
+    }
+
+    public void setTitle(String text) {
+        if (!Objects.equals(text, this.title)) {
+            this.title = text;
+            SwingUtilities.invokeLater(() -> {
+                if (SwingUtilities.getWindowAncestor(this) instanceof Frame f) {
+                    f.setTitle(this.title);
+                }
+            });
+        }
     }
 }
