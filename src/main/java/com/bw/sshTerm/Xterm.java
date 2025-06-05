@@ -9,8 +9,6 @@ public class Xterm {
     public Type type = null;
     public StringBuilder arguments = new StringBuilder();
 
-    int viewPortX = 0;
-    int viewPortY = 0;
     byte infix = 0;
     boolean bracketedPasteMode = false;
     private char[] buffer = new char[1000];
@@ -131,7 +129,7 @@ public class Xterm {
                         state = State.typeIndicator;
                         infix = 0;
                     }
-                    case '7', '8', '=', '>', 'F', 'c', 'l', 'm', 'n', 'o', '|', '}', '~' -> {
+                    case '7', '8', '=', '>', 'F', 'M', 'c', 'l', 'm', 'n', 'o', '|', '}', '~' -> {
                         handleEscCommand(c, (byte) 0, pane);
                         state = State.normal;
                         infix = 0;
@@ -194,8 +192,8 @@ public class Xterm {
         switch ((char) c) {
             case 'd' -> { // VPA Move to the corresponding vertical position (line Ps) of the current column (default 1).
                 int ps = getIntParameter(0, 1, params) - 1;
-                System.out.println(" -> Move caret to " + pane.caretX + "," + (viewPortY + ps));
-                pane.setCaretAbsolute(pane.caretX, viewPortY + ps);
+                System.out.println(" -> Move caret to " + pane.caretX + "," + ps);
+                pane.setCaretAbsolute(pane.caretX, ps);
             }
             case 'h' -> {
                 if (infix == '?') {
@@ -398,15 +396,14 @@ public class Xterm {
             }
             case 'r' // DECSTBM
                     -> {
-                viewPortX = getIntParameter(0, 1, params) - 1;
-                viewPortY = getIntParameter(1, pane.termHeight, params) - 1;
                 System.out.println(" -> Set top and bottom margins");
+                pane.setMargins(getIntParameter(0, 1, params) - 1, getIntParameter(1, pane.termHeight, params) - 1);
+                // Set Scrolling Region
                 // Set top and bottom margins.
                 //   Ps1    Line number for the top margin.
                 //          The default value is 1.
                 //   Ps2    Line number for the bottom margin.
                 //          The default value is current number of lines per screen.
-
             }
             case 't' -> { // Window manipulation
                 for (String param : params) {
@@ -481,8 +478,8 @@ public class Xterm {
                 // Moves cursor to the Ps1-th line and to the Ps2-th column. The default value of Ps1 and Ps2 is 1.
                 int row = getIntParameter(0, 1, params) - 1;
                 int col = getIntParameter(1, 1, params) - 1;
-                System.out.println(" -> Move caret to " + col + "," + row + "  (viewport relative " + viewPortX + "," + viewPortY + ")");
-                pane.setCaretAbsolute(viewPortX + col, viewPortY +row);
+                System.out.println(" -> Move caret to " + col + "," + row);
+                pane.setCaretAbsolute(col, row);
             }
             case 'J'  // ED - Erase in Display
                     -> {
@@ -496,8 +493,6 @@ public class Xterm {
                     }
                     case 2 -> // Erase All
                     {
-                        viewPortX = 0;
-                        viewPortY = 0;
                         pane.clear();
                     }
                     case 3 -> // Erase Saved Lines
@@ -597,7 +592,7 @@ public class Xterm {
      * Simple 2 char commands
      */
     public void handleEscCommand(byte first, byte second, TerminalPane pane) {
-        System.out.print("Command ESC" + ((char) first) + "" + ((char) second) + " -> ");
+        System.out.print("Command ESC" + ((char) first) + "" + (second == 0 ? "" : (char) second) + " -> ");
 
         switch (first) {
             case ' ' -> {
@@ -631,6 +626,16 @@ public class Xterm {
 
             case '7' -> {
                 // Save Cursor (DECSC)
+                // things saved & restored here is defined by DEC:
+                // https://vt100.net/docs/vt510-rm/DECSC.html
+                // - Cursor position
+                // - Character attributes set by the SGR command
+                // - Character sets (G0, G1, G2, or G3) currently in GL and GR
+                // - Wrap flag (autowrap or no autowrap)
+                // - State of origin mode (DECOM)
+                // - Selective erase attribute
+                // - Any single shift 2 (SS2) or single shift 3 (SS3) functions sent
+                //
                 System.out.println("Save Cursor");
             }
             case '8' -> {
@@ -646,6 +651,10 @@ public class Xterm {
             }
             case 'F' -> {
                 System.out.println("Cursor to lower left corner of screen (disabled)");
+            }
+            case 'M' -> {
+                System.out.println("Move the cursor one line up scrolling if needed.");
+                pane.moveCaret(0, -1);
             }
             case 'c' -> {
                 System.out.println("Full Reset (RIS)");

@@ -74,7 +74,7 @@ public class SSHTerm extends JPanel {
 
         frame.add(BorderLayout.CENTER, scroller);
         frame.add(BorderLayout.SOUTH, new JTextArea("AAA"));
-        frame.setPreferredSize(new Dimension(500, 500));
+        frame.setPreferredSize(new Dimension(800, 900));
         frame.pack();
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setLocationByPlatform(true);

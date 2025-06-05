@@ -22,12 +22,29 @@ public class TerminalPane extends JComponent {
      * </ul>
      */
     public final static String PROPERTY_TERM_SIZE = "termSize";
+
+    public List<char[]> topScrollBuffer = new ArrayList<>(100);
+    public List<char[]> bottomScrollBuffer = new ArrayList<>(100);
+
     public List<char[]> term = new ArrayList<>(100);
+
     public boolean showCursor = true;
     protected int charWidth;
     protected int charHeight;
+
     protected int termWidth;
     protected int termHeight;
+
+    /**
+     * Zero based upper margin in range [0, termHeight-1[
+     */
+    protected int marginTop = 0;
+
+    /**
+     * Zero based lower margin in range [1, termHeight[
+     */
+    protected int marginBottom = 0;
+
     protected int ascent;
     int caretY = 0;
     int caretX = 0;
@@ -70,14 +87,32 @@ public class TerminalPane extends JComponent {
     public void moveCaret(int xd, int yd) {
         caretX += xd;
         caretY += yd;
+        while (caretY > marginBottom) {
+            scrollDown();
+            caretY--;
+        }
+        while (caretY < marginTop) {
+            scrollUp();
+            caretY++;
+        }
         repaint();
     }
 
     public void setCaretAbsolute(int x, int y) {
+        if (marginBottom == 0) marginBottom = termHeight - 1;
+        System.out.println("setCarAbs " + x + "," + y + " [" + marginTop + "," + marginBottom + "]");
         if (x < 0) x = 0;
         if (y < 0) y = 0;
         caretX = x;
         caretY = y;
+        while (caretY > marginBottom) {
+            caretY--;
+            scrollDown();
+        }
+        while (caretY < marginTop) {
+            caretY++;
+            scrollUp();
+        }
         repaint();
     }
 
@@ -89,27 +124,60 @@ public class TerminalPane extends JComponent {
         return caretY;
     }
 
-    protected void ensureSpace(int yOffset) {
-        while (term.size() <= yOffset) {
+    protected void ensureSpace() {
+
+        while (term.size() > termHeight)
+            term.remove(term.size() - 1);
+        while (term.size() < termHeight) {
             term.add(new char[termWidth]);
         }
     }
 
+    protected void scrollDown() {
+        topScrollBuffer.add(term.remove(marginTop));
+        if (bottomScrollBuffer.isEmpty())
+            term.add(marginBottom, new char[termWidth]);
+        else
+            term.add(marginBottom, bottomScrollBuffer.remove(bottomScrollBuffer.size() - 1));
+        System.out.println("After ScrollDown: [" + marginTop + "," + marginBottom + "] term:" + term.size());
+        repaint();
+    }
+
+    protected void scrollUp() {
+        bottomScrollBuffer.add(term.remove(marginBottom));
+        term.add(marginTop, topScrollBuffer.remove(topScrollBuffer.size() - 1));
+        System.out.println("After ScrollUp: [" + marginTop + "," + marginBottom + "] term:" + term.size());
+        repaint();
+    }
+
+
+    /**
+     * Set char at the terminal
+     *
+     * @param x The column in terminal. [0 - termWidth[
+     * @param y The row in terminal. [0 - termHeight[
+     * @param b The character to set
+     */
     public void setCharAt(int x, int y, char b) {
         try {
-            ensureSpace(y);
-            char[] l = term.get(y);
-            if (l.length <= x) {
-                l = Arrays.copyOf(l, x + 10);
-                term.set(y, l);
+            System.out.println("char (" + x + "," + y + ")=" + (b < ' ' ? "Ox" + Integer.toHexString(b) : "" + b));
+            if (y >= 0) {
+                while (y > marginBottom) {
+                    scrollDown();
+                    --y;
+                }
+                char[] l = term.get(y);
+                if (l.length <= x) {
+                    l = Arrays.copyOf(l, x + 10);
+                    term.set(y, l);
+                }
+                l[x--] = b;
+                while (x >= 0 && l[x] == 0) {
+                    l[x--] = ' ';
+                }
+                // TODO
+                repaint();
             }
-            System.out.println("char (" + x + "," + y + ")=" + b);
-            l[x--] = b;
-            while (x >= 0 && l[x] == 0) {
-                l[x--] = ' ';
-            }
-            // TODO
-            repaint();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -158,10 +226,9 @@ public class TerminalPane extends JComponent {
         int newCharHeight = metrics.getHeight();   // Höhe eines Zeichens
 
         Dimension d = getSize();
-        if (d.width < 100)
-            d.width = newCharWidth * 100;
-        if (d.height < 100)
-            d.height = newCharHeight * 40;
+        // TODO: fix this for now.
+        d.width = newCharWidth * 80;
+        d.height = newCharHeight * 40;
 
         int newTermWitdh = d.width / newCharWidth;
         int newTermHeight = d.height / newCharHeight;
@@ -176,7 +243,13 @@ public class TerminalPane extends JComponent {
             charWidth = newCharWidth;
             ascent = metrics.getAscent();
             termWidth = newTermWitdh;
+
+            if (marginBottom == (termHeight - 1))
+                marginBottom = newTermHeight - 1;
             termHeight = newTermHeight;
+
+            ensureSpace();
+
             System.out.printf("\nNew Terminal Dimension: %d x %d. char %d x %d\n", termWidth, termHeight, charWidth, charHeight);
 
             int[] newTerminalSpec = new int[]{termWidth, termHeight, charWidth, charHeight};
@@ -185,9 +258,16 @@ public class TerminalPane extends JComponent {
     }
 
     public void clear() {
+        marginTop = 0;
+        marginBottom = termHeight - 1;
         caretX = 0;
         caretY = 0;
+        topScrollBuffer.clear();
+        bottomScrollBuffer.clear();
         term.clear();
+        ensureSpace();
+
+
         repaint();
     }
 
@@ -222,5 +302,23 @@ public class TerminalPane extends JComponent {
                 }
             });
         }
+    }
+
+    public void setMargins(int top, int bottom) {
+        System.out.println("setMargins(" + marginTop + "," + marginBottom + ") -> (" + top + "," + bottom + ")");
+        while (marginTop > top) {
+            marginTop--;
+        }
+        while (marginTop < top) {
+            marginTop++;
+        }
+
+        while (marginBottom > bottom) {
+            marginBottom--;
+        }
+        while (marginBottom < bottom) {
+            marginBottom++;
+        }
+        repaint();
     }
 }
