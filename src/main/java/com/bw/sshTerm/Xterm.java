@@ -129,7 +129,7 @@ public class Xterm {
                         state = State.typeIndicator;
                         infix = 0;
                     }
-                    case '7', '8', '=', '>', 'F', 'M', 'c', 'l', 'm', 'n', 'o', '|', '}', '~' -> {
+                    case '7', '8', '=', '>', 'D', 'E', 'F', 'H', 'M', 'c', 'l', 'm', 'n', 'o', '|', '}', '~' -> {
                         handleEscCommand(c, (byte) 0, pane);
                         state = State.normal;
                         infix = 0;
@@ -649,10 +649,24 @@ public class Xterm {
             case '>' -> {
                 System.out.println("Normal Keypad (DECPNM)");
             }
+            case 'D' -> {
+                // IND Index
+                System.out.println("Move the cursor one line down scrolling if needed.");
+                pane.moveCaret(0, 1);
+            }
+            case 'E' -> {
+                // NEL	Next Line
+                System.out.println("Move the cursor to the beginning of the next row");
+                pane.setCaretAbsolute(0, pane.caretY+1);
+            }
             case 'F' -> {
                 System.out.println("Cursor to lower left corner of screen (disabled)");
             }
-            case 'M' -> {
+            case 'H' -> {
+                // HTS Horizontal Tabulation Set
+                System.out.println("Places a tab stop at the current cursor position");
+            }
+            case 'M' -> { // IR	Reverse Index
                 System.out.println("Move the cursor one line up scrolling if needed.");
                 pane.moveCaret(0, -1);
             }
