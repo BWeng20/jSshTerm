@@ -15,18 +15,17 @@ import java.nio.charset.StandardCharsets;
 /**
  * Handles Control Sequences and controls the terminal
  */
-public class TerminalControl {
+public abstract class TerminalControl {
 
-    SSHTerm term;
-    TerminalPane pane;
-    Xterm termHandler = new Xterm();
-    public KeyListener keyListener = new KeyAdapter() {
+    protected SSHTerm term;
+    protected TerminalPane pane;
+    protected KeyListener keyListener = new KeyAdapter() {
 
         @Override
         public void keyPressed(KeyEvent e) {
             // TODO: We need to know if the sequences are supported by the terminal...
             try {
-                byte[] x = termHandler.getCtrlCodes((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0, e.getKeyCode(), e.getKeyChar());
+                byte[] x = getCtrlCodes((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0, e.getKeyCode(), e.getKeyChar());
                 if (x != null)
                     term.write(x);
                 else
@@ -57,8 +56,14 @@ public class TerminalControl {
         }
     };
 
-    public TerminalControl() {
+    protected TerminalControl() {
     }
+
+    public abstract byte[] getCtrlCodes(boolean ctrlDown, int keyCode, char keyChar);
+
+    public abstract String getPtyType();
+
+    public abstract void handleChar(byte c);
 
     public void install(SSHTerm term, TerminalPane pane) {
         this.term = term;
@@ -75,12 +80,8 @@ public class TerminalControl {
 
     protected void handleShellOutput(byte[] buffer, int bytesRead) throws BadLocationException {
         for (int i = 0; i < bytesRead; ++i) {
-            termHandler.handleChar(buffer[i], pane);
+            handleChar(buffer[i]);
         }
     }
 
-
-    public String getPtyType() {
-        return termHandler.getPtyType();
-    }
 }

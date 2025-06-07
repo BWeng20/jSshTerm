@@ -1,17 +1,17 @@
 package com.bw.sshTerm;
 
+import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.nio.charset.StandardCharsets;
 
-public class Xterm {
+public class Xterm extends TerminalControl {
 
-    public State state = State.normal;
-    public Type type = null;
-    public StringBuilder arguments = new StringBuilder();
+    private State state = State.normal;
+    private Type type = null;
+    private StringBuilder arguments = new StringBuilder();
 
-    byte infix = 0;
-    boolean bracketedPasteMode = false;
-    private char[] buffer = new char[1000];
+    private byte infix = 0;
+    private boolean bracketedPasteMode = false;
 
     public byte[] getCtrlCodes(boolean ctrlDown, int keyCode, char keyChar) {
         byte[] data = null;
@@ -72,11 +72,12 @@ public class Xterm {
         return data;
     }
 
+    @Override
     public String getPtyType() {
         return "xterm";
     }
 
-    protected void addChar(char c, TerminalPane pane) {
+    protected void addChar(char c) {
         if (pane.getCaretX() >= pane.termWidth) {
             pane.setCaretAbsolute(0, pane.caretY + 1);
             pane.setChar(c);
@@ -86,9 +87,8 @@ public class Xterm {
         }
     }
 
-    public void handleChar(byte c, TerminalPane pane) {
-        buffer[0] = 0;
-        buffer[1] = 0;
+    @Override
+    public void handleChar(byte c) {
         switch (state) {
             case normal -> {
                 switch (c) {
@@ -108,7 +108,7 @@ public class Xterm {
                         pane.setCaretAbsolute(0, pane.caretY + 1);
                     }
                     default -> {
-                        addChar((char) c, pane);
+                        addChar((char) c);
                     }
                 }
             }
@@ -130,7 +130,7 @@ public class Xterm {
                         infix = 0;
                     }
                     case '7', '8', '=', '>', 'D', 'E', 'F', 'H', 'M', 'c', 'l', 'm', 'n', 'o', '|', '}', '~' -> {
-                        handleEscCommand(c, (byte) 0, pane);
+                        handleEscCommand(c, (byte) 0);
                         state = State.normal;
                         infix = 0;
                     }
@@ -141,8 +141,8 @@ public class Xterm {
                     }
                     default -> {
                         state = State.normal;
-                        addChar('\033', pane);
-                        addChar((char) c, pane);
+                        addChar('\033');
+                        addChar((char) c);
                     }
                 }
             }
@@ -154,13 +154,13 @@ public class Xterm {
                     infix = c;
                     state = State.arguments;
                 } else {
-                    handleCommand(c, pane);
+                    handleCommand(c);
                     state = State.normal;
                 }
             }
             case escSingleChar -> {
-                // Esc with one single character. Firsat char in infix
-                handleCommand(c, pane);
+                // Esc with one single character. First char in infix
+                handleCommand(c);
                 state = State.normal;
             }
             case arguments -> {
@@ -168,7 +168,7 @@ public class Xterm {
                         (type == Type.osc && c >= 32 && c <= 126)) {
                     arguments.append((char) c);
                 } else {
-                    handleCommand(c, pane);
+                    handleCommand(c);
                     state = State.normal;
                     type = null;
                 }
@@ -177,6 +177,92 @@ public class Xterm {
     }
 
     protected void applySgrCode(int code) {
+        System.out.println("Sgr " + code);
+        switch (code) {
+            case 0 -> { // Normal (default)
+                pane.setCharBackground(null);
+                pane.setCharForeground(null);
+            }
+            case 1 -> { // Bold
+            }
+            case 4 -> { // Underlined
+            }
+            case 5 -> { // Blink (appears as Bold)
+            }
+            case 7 -> { // Inverse
+                pane.setCharBackground(pane.getForeground());
+                pane.setCharForeground(pane.getBackground());
+            }
+            case 8 -> { // Invisible, i.e., hidden (VT300)
+            }
+            case 22 -> { // Normal (neither bold nor faint)
+            }
+            case 24 -> { // Not underlined
+            }
+            case 25 -> { // Steady (not blinking)
+            }
+            case 27 -> { // Positive (not inverse)
+                Color bg = pane.getCharBackground();
+                pane.setCharBackground(pane.getCharForeground());
+                pane.setCharForeground(bg);
+            }
+            case 28 -> { // Visible, i.e., not hidden (VT300)
+            }
+            case 30 -> { // Set foreground color to Black
+                pane.setCharForeground(Color.BLACK);
+            }
+            case 31 -> { // Set foreground color to Red
+                pane.setCharForeground(Color.RED);
+            }
+            case 32 -> { // Set foreground color to Green
+                pane.setCharForeground(Color.GREEN);
+            }
+            case 33 -> { // Set foreground color to Yellow
+                pane.setCharForeground(Color.YELLOW);
+            }
+            case 34 -> { // Set foreground color to Blue
+                pane.setCharForeground(Color.BLUE);
+            }
+            case 35 -> { // Set foreground color to Magenta
+                pane.setCharForeground(Color.MAGENTA);
+            }
+            case 36 -> { // Set foreground color to Cyan
+                pane.setCharForeground(Color.CYAN);
+            }
+            case 37 -> { // Set foreground color to White
+                pane.setCharForeground(Color.WHITE);
+            }
+            case 39 -> { // Set foreground color to default (original)
+                pane.setCharForeground(null);
+            }
+            case 40 -> { // Set background color to Black
+                pane.setCharBackground(Color.BLACK);
+            }
+            case 41 -> { // Set background color to Red
+                pane.setCharBackground(Color.RED);
+            }
+            case 42 -> { // Set background color to Green
+                pane.setCharBackground(Color.GREEN);
+            }
+            case 43 -> { // Set background color to Yellow
+                pane.setCharBackground(Color.YELLOW);
+            }
+            case 44 -> { // Set background color to Blue
+                pane.setCharBackground(Color.BLUE);
+            }
+            case 45 -> { // Set background color to Magenta
+                pane.setCharBackground(Color.MAGENTA);
+            }
+            case 46 -> { // Set background color to Cyan
+                pane.setCharBackground(Color.CYAN);
+            }
+            case 47 -> { // Set background color to White
+                pane.setCharBackground(Color.WHITE);
+            }
+            case 49 -> { // Set background color to default (original).
+                pane.setCharBackground(null);
+            }
+        }
     }
 
     protected int getIntParameter(int n, int defaultVal, String[] params) {
@@ -187,7 +273,7 @@ public class Xterm {
         return params.length > n && !params[n].isEmpty() ? params[n] : defaultVal;
     }
 
-    public void handleCsiCommand(byte c, String[] params, TerminalPane pane) {
+    public void handleCsiCommand(byte c, String[] params) {
         System.out.println("Command CSI " + (infix == 0 ? "" : "" + (char) infix) + (c >= 32 ? "'" + ((char) c) + "'" : String.valueOf(c)) + " {" + String.join(",", params) + "}");
         switch ((char) c) {
             case 'd' -> { // VPA Move to the corresponding vertical position (line Ps) of the current column (default 1).
@@ -252,6 +338,7 @@ public class Xterm {
                             case 46 -> { //  Start Logging (normally disabled by a compile-time option)
                             }
                             case 47 -> { //  Use Alternate Screen Buffer (unless disabled by the titeInhibit resource)
+                                pane.switchScreen(1, false);
                             }
                             case 66 -> { //  Application keypad (DECNKM)
                             }
@@ -276,6 +363,7 @@ public class Xterm {
                             case 1037 -> { // Send DEL from the editing-keypad Delete key
                             }
                             case 1047 -> { // Use Alternate Screen Buffer (unless disabled by the titeInhibit resource)
+                                pane.switchScreen(1, false);
                             }
                             case 1048 -> { // Save cursor as in DECSC (unless disabled by the titeInhibit resource)
                             }
@@ -283,6 +371,8 @@ public class Xterm {
                                 // Save cursor as in DECSC and use Alternate Screen Buffer,
                                 // clearing it first (unless disabled by the titeInhibit resource).
                                 // This combines the effects of the 1047 and 1048 modes.
+                                pane.switchScreen(1, false);
+                                pane.clear();
                             }
                             case 1051 -> { // Set Sun function-key mode.
                             }
@@ -334,6 +424,7 @@ public class Xterm {
                             case 45 -> { // No reverse wrap-around.
                             }
                             case 47 -> { // Use Normal Screen Buffer.
+                                pane.switchScreen(0, false);
                             }
                             case 66 -> { // Numeric keypad (DECNKM).
                             }
@@ -354,12 +445,22 @@ public class Xterm {
                             case 1016 -> { // Disable SGR-Pixels Mouse Mode.
                             }
                             case 1047 -> { // Use Normal Screen Buffer (clearing screen if in alt).
+                                System.out.println(" -> Use Normal Screen Buffer (clearing screen if in alt)");
+                                if (pane.getActiveScreen() == 1) {
+                                    pane.switchScreen(0, false);
+                                    pane.clear();
+                                }
                             }
                             case 1048 -> { // Restore cursor as in DECRC.
                             }
                             case 1049 -> { // Use Normal Screen Buffer and restore cursor.
+                                System.out.println(" -> Use Normal Screen Buffer and restore cursor");
+                                if (pane.getActiveScreen() == 1) {
+                                    pane.switchScreen(0, true);
+                                }
                             }
                             case 2004 -> { // Reset bracketed paste mode.
+                                System.out.println(" -> bracketedPasteMode off");
                                 bracketedPasteMode = false;
                             }
                         }
@@ -388,10 +489,14 @@ public class Xterm {
             }
             case 'm'  // SGR - Select Graphic Rendition
                     -> {
-                System.out.println(" -> Select character attributes. The default value of Pm is 0.");
-                for (String param : params) {
-                    int code = param.isEmpty() ? 0 : Integer.parseInt(param);
-                    applySgrCode(code);
+                System.out.println(" -> Select character attributes");
+                if (params.length == 0) {
+                    applySgrCode(0);
+                } else {
+                    for (String param : params) {
+                        int code = param.isEmpty() ? 0 : Integer.parseInt(param);
+                        applySgrCode(code);
+                    }
                 }
             }
             case 'r' // DECSTBM
@@ -446,6 +551,7 @@ public class Xterm {
                             // Ps2 = 0, 1, 2    Save window title.
                         }
                         case 23 -> { //     Restore window title from stack.
+                            System.out.println(" -> Restore window title from stack.");
                             // Ps2 = 0, 1, 2    Restore window title.
                         }
                         default -> {
@@ -540,7 +646,7 @@ public class Xterm {
         }
     }
 
-    public void handleOscCommand(byte c, String[] params, TerminalPane pane) {
+    public void handleOscCommand(byte c, String[] params) {
         System.out.println("Command OSC " + (infix == 0 ? "" : "" + (char) infix) + (c >= 32 ? "'" + ((char) c) + "'" : String.valueOf(c)) + " {" + String.join(",", params) + "}");
         switch (c) {
             case 7, (byte) 0x9C -> // BELL or ST: Set Text Parameters
@@ -591,7 +697,7 @@ public class Xterm {
     /**
      * Simple 2 char commands
      */
-    public void handleEscCommand(byte first, byte second, TerminalPane pane) {
+    public void handleEscCommand(byte first, byte second) {
         System.out.print("Command ESC" + ((char) first) + "" + (second == 0 ? "" : (char) second) + " -> ");
 
         switch (first) {
@@ -657,7 +763,7 @@ public class Xterm {
             case 'E' -> {
                 // NEL	Next Line
                 System.out.println("Move the cursor to the beginning of the next row");
-                pane.setCaretAbsolute(0, pane.caretY+1);
+                pane.setCaretAbsolute(0, pane.caretY + 1);
             }
             case 'F' -> {
                 System.out.println("Cursor to lower left corner of screen (disabled)");
@@ -698,18 +804,18 @@ public class Xterm {
         }
     }
 
-    public void handleCommand(byte c, TerminalPane pane) {
+    public void handleCommand(byte c) {
         String r = null;
         String[] params = arguments.toString().split(";");
 
         switch (type) {
-            case csi -> handleCsiCommand(c, params, pane);
-            case osc -> handleOscCommand(c, params, pane);
+            case csi -> handleCsiCommand(c, params);
+            case osc -> handleOscCommand(c, params);
             case pm -> {
                 // Nope
             }
             case escSingleChar -> {
-                handleEscCommand(infix, c, pane);
+                handleEscCommand(infix, c);
             }
         }
     }

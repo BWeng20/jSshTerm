@@ -36,7 +36,7 @@ public class SSHTerm extends JPanel {
     private ChannelShell channel;
     private OutputStream inputToShell;
     private InputStream shellOutput;
-    private TerminalControl ctrl = new TerminalControl();
+    private TerminalControl ctrl = new Xterm();
     private TerminalPane pane = new TerminalPane();
 
     /**
