@@ -1,7 +1,15 @@
+/**
+ * Copyright 2025, Bernd Wengenroth.
+ * This is free and unencumbered software released into the public domain.
+ * Check LICENSE for details.
+ */
 package com.bw.sshTerm;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.MouseAdapter;
@@ -9,6 +17,9 @@ import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.List;
 
+/**
+ * A panel to show a terminal.
+ */
 public class TerminalPane extends JComponent {
 
     /**
@@ -26,6 +37,7 @@ public class TerminalPane extends JComponent {
     public boolean showCursor = true;
     public Color background;
     public Color foreground;
+    public boolean connected;
     protected int charWidth;
     protected int charHeight;
     protected int termWidth;
@@ -193,54 +205,64 @@ public class TerminalPane extends JComponent {
         Graphics2D g2 = (Graphics2D) g.create();
         char[] cc = {0};
         try {
-            synchronized (activeScreenBuffer.term) {
-                lines = activeScreenBuffer.term.toArray(lines);
-            }
-            final Color background = getBackground();
-            final Color foreground = getForeground();
+            if (connected) {
 
-            Color currentColor = Color.RED;
-            g2.setPaint(Color.RED);
-
-            for (int i = 1; i <= lines.length; ++i) {
-                g2.drawString(String.format("%03d", i), 0, y);
-                y += charHeight;
-            }
-            y = ascent;
-
-            for (XC[] line : lines) {
-                if (line == null) {
-                    break;
+                synchronized (activeScreenBuffer.term) {
+                    lines = activeScreenBuffer.term.toArray(lines);
                 }
-                int cx = x;
-                for (XC c : line) {
-                    if (c == null)
+                final Color background = getBackground();
+                final Color foreground = getForeground();
+
+                Color currentColor = Color.RED;
+                g2.setPaint(Color.RED);
+
+                for (int i = 1; i <= lines.length; ++i) {
+                    g2.drawString(String.format("%03d", i), 0, y);
+                    y += charHeight;
+                }
+                y = ascent;
+
+                for (XC[] line : lines) {
+                    if (line == null) {
                         break;
+                    }
+                    int cx = x;
+                    for (XC c : line) {
+                        if (c == null)
+                            break;
 
-                    Color BG = c.background == null ? background : c.background;
-                    if (BG != background) {
-                        if (BG != currentColor) {
-                            g2.setPaint(BG);
-                            currentColor = BG;
+                        Color BG = c.background == null ? background : c.background;
+                        if (BG != background) {
+                            if (BG != currentColor) {
+                                g2.setPaint(BG);
+                                currentColor = BG;
+                            }
+                            g2.fillRect(cx, by, charWidth, charHeight);
                         }
-                        g2.fillRect(cx, by, charWidth, charHeight);
-                    }
-                    if (c.c != 0) {
-                        cc[0] = c.c;
-                        Color FB = c.color == null ? foreground : c.color;
-                        if (FB != currentColor) {
-                            g2.setPaint(FB);
-                            currentColor = FB;
+                        if (c.c != 0) {
+                            cc[0] = c.c;
+                            Color FB = c.color == null ? foreground : c.color;
+                            if (FB != currentColor) {
+                                g2.setPaint(FB);
+                                currentColor = FB;
+                            }
+                            g2.drawChars(cc, 0, 1, cx, y);
                         }
-                        g2.drawChars(cc, 0, 1, cx, y);
+                        cx += charWidth;
                     }
-                    cx += charWidth;
+                    y += charHeight;
+                    by += charHeight;
                 }
-                y += charHeight;
-                by += charHeight;
+                if (showCursor)
+                    g2.drawRect(x + caretX * charWidth, caretY * charHeight, charWidth, charHeight);
+            } else {
+                Dimension d = getSize();
+                String text = "Connecting...";
+                FontMetrics fm = g2.getFontMetrics();
+                int w = fm.stringWidth(text);
+                g2.setPaint(Color.BLACK);
+                g2.drawString(text, (d.width - w) / 2, (d.height / 2) - fm.getAscent());
             }
-            if (showCursor)
-                g2.drawRect(x + caretX * charWidth, caretY * charHeight, charWidth, charHeight);
         } finally {
             g2.dispose();
         }
@@ -258,12 +280,15 @@ public class TerminalPane extends JComponent {
         int newCharHeight = metrics.getHeight();   // Höhe eines Zeichens
 
         Dimension d = getSize();
-        // TODO: fix this for now.
-        d.width = newCharWidth * 80;
-        d.height = newCharHeight * 40;
+        System.out.println("SIZE " + d);
 
         int newTermWitdh = d.width / newCharWidth;
         int newTermHeight = d.height / newCharHeight;
+
+        if (newTermWitdh < 20)
+            newTermWitdh = 20;
+        if (newTermHeight < 20)
+            newTermHeight = 20;
 
         if (newTermHeight > 0 && newTermWitdh > 0 &&
                 (charHeight != newCharHeight ||
@@ -276,10 +301,10 @@ public class TerminalPane extends JComponent {
             ascent = metrics.getAscent();
             termWidth = newTermWitdh;
 
-            if (activeScreenBuffer.marginBottom == (termHeight - 1))
-                activeScreenBuffer.marginBottom = newTermHeight - 1;
+            if (activeScreenBuffer.marginBottom == (termHeight - 1)) {
+                activeScreenBuffer.setMargins(activeScreenBuffer.marginTop, newTermHeight - 1);
+            }
             termHeight = newTermHeight;
-
             activeScreenBuffer.ensureSpace();
 
             System.out.printf("\nNew Terminal Dimension: %d x %d. char %d x %d\n", termWidth, termHeight, charWidth, charHeight);
@@ -356,6 +381,21 @@ public class TerminalPane extends JComponent {
         background = bg;
     }
 
+    /**
+     * Get the system clip-board content.
+     */
+    public String getClipboardContents() {
+        try {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            Transferable contents = clipboard.getContents(null);
+            if (contents != null && contents.isDataFlavorSupported(DataFlavor.stringFlavor)) {
+                return (String) contents.getTransferData(DataFlavor.stringFlavor);
+            }
+        } catch (Exception e) {
+        }
+        return "";
+    }
+
     static final class XC {
         Color color;
         Color background;
@@ -389,12 +429,13 @@ public class TerminalPane extends JComponent {
             while (marginTop < top) {
                 marginTop++;
             }
-
             while (marginBottom > bottom) {
                 marginBottom--;
             }
             while (marginBottom < bottom) {
                 marginBottom++;
+                while (term.size() < (marginBottom - marginTop))
+                    term.add(new XC[termWidth]);
             }
         }
 
@@ -407,11 +448,10 @@ public class TerminalPane extends JComponent {
         }
 
         public void clear() {
-            marginTop = 0;
-            marginBottom = termHeight - 1;
             topScrollBuffer.clear();
             bottomScrollBuffer.clear();
             term.clear();
+            setMargins(0, termHeight - 1);
             ensureSpace();
         }
 

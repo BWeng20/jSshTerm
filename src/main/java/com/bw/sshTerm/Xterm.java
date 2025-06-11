@@ -4,6 +4,9 @@ import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.nio.charset.StandardCharsets;
 
+/**
+ * A Terminal controller that supports xterm control sequences.
+ */
 public class Xterm extends TerminalControl {
 
     private State state = State.normal;
@@ -385,6 +388,7 @@ public class Xterm extends TerminalControl {
                             case 1061 -> { // Set Sun/PC keyboard emulation of VT220 keyboard.
                             }
                             case 2004 -> { // Set bracketed paste mode.
+                                System.out.println(" -> bracketedPasteMode on");
                                 bracketedPasteMode = true;
                             }
                         }
@@ -401,6 +405,7 @@ public class Xterm extends TerminalControl {
                         int ps = Integer.parseInt(p);
                         switch (ps) {
                             case 1 -> { // Normal Cursor Keys (DECCKM).
+                                System.out.println(" -> Normal Cursor Keys");
                             }
                             case 2 -> { // Designate VT52 mode (DECANM).
                             }
@@ -657,6 +662,7 @@ public class Xterm extends TerminalControl {
                 switch (ps) {
                     case 0 -> // Change Icon Name and Window Title to pt
                     {
+                        System.out.println(" -> Change Icon Name and Window Title");
                         pane.setTitle(pt);
                     }
                     case 1 -> { // Change Icon Name to pt

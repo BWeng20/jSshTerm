@@ -6,18 +6,17 @@
 
 package com.bw.sshTerm;
 
-import javax.swing.text.BadLocationException;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Handles Control Sequences and controls the terminal
+ * Base class to implement handlers for protocol specific Control Sequences.
  */
 public abstract class TerminalControl {
 
-    protected SSHTerm term;
+    protected ShellChannel term;
     protected TerminalPane pane;
     protected KeyListener keyListener = new KeyAdapter() {
 
@@ -31,7 +30,7 @@ public abstract class TerminalControl {
                 else
                     switch (e.getKeyCode()) {
                         case KeyEvent.VK_V:
-                            String clipboardText = term.getClipboardContents();
+                            String clipboardText = pane.getClipboardContents();
                             // TODO: Escape if needed
                             term.write(clipboardText.getBytes(StandardCharsets.US_ASCII));
                             break;
@@ -56,16 +55,27 @@ public abstract class TerminalControl {
         }
     };
 
-    protected TerminalControl() {
-    }
-
+    /**
+     * Get control codes for specific keys.
+     *
+     * @param ctrlDown True if Ctrl was pressed.
+     * @param keyCode  The key code.
+     * @param keyChar  The key char.
+     * @return The control sequence or null.
+     */
     public abstract byte[] getCtrlCodes(boolean ctrlDown, int keyCode, char keyChar);
 
     public abstract String getPtyType();
 
     public abstract void handleChar(byte c);
 
-    public void install(SSHTerm term, TerminalPane pane) {
+    /**
+     * Installs the control to a pane and connects to a terminal-channel.
+     *
+     * @param pane The pane to show the terminal.
+     * @param term The remote shell channel.
+     */
+    public void install(ShellChannel term, TerminalPane pane) {
         this.term = term;
         pane.addKeyListener(keyListener);
         this.pane = pane;
@@ -78,10 +88,13 @@ public abstract class TerminalControl {
         term.setPtySize(d[0], d[1], d[2], d[3]);
     }
 
-    protected void handleShellOutput(byte[] buffer, int bytesRead) throws BadLocationException {
+    public void handleShellOutput(byte[] buffer, int bytesRead) {
         for (int i = 0; i < bytesRead; ++i) {
             handleChar(buffer[i]);
         }
     }
 
+    public TerminalPane getPane() {
+        return pane;
+    }
 }
