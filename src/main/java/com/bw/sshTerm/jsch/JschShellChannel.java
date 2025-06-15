@@ -37,6 +37,7 @@ public class JschShellChannel implements ShellChannel {
 
     /**
      * Starts a session. <br>*
+     *
      * @throws IOException Throws if JSch fails due to some io-operation.
      */
     public void connect(String user, String password, String host, int port, TerminalControl terminalControl) throws IOException {
@@ -81,7 +82,9 @@ public class JschShellChannel implements ShellChannel {
             byte[] buffer = new byte[1024];
             int bytesRead;
             while ((bytesRead = shellOutput.read(buffer)) != -1) {
-                ctrl.handleShellOutput(buffer, bytesRead);
+                byte[] answer = ctrl.handleShellOutput(buffer, bytesRead);
+                if (answer != null)
+                    write(answer);
             }
             System.out.println("Connection terminated");
         } catch (Exception ex) {

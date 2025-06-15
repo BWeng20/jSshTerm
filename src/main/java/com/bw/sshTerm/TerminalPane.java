@@ -10,12 +10,13 @@ import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
-import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.List;
+
 
 /**
  * A panel to show a terminal.
@@ -33,23 +34,26 @@ public class TerminalPane extends JComponent {
     public final static String PROPERTY_TERM_SIZE = "termSize";
 
     ;
+    protected final Caret caret = new Caret();
     private final Map<Integer, Screen> screens = new HashMap<>();
     public boolean showCursor = true;
     public Color background;
     public Color foreground;
-    public boolean connected;
+    protected boolean connected;
     protected int charWidth;
     protected int charHeight;
     protected int termWidth;
     protected int termHeight;
+    protected boolean caretEnabled = true;
 
-    protected XC[][] lines = new XC[0][0];
+    protected String connectMessage = "Connecting...";
     protected int ascent;
-    int caretY = 0;
-    int caretX = 0;
+    Rectangle repaintArea = null;
+    private XC[][] lines = new XC[0][0];
     private Screen activeScreenBuffer = new Screen();
     private int activeScreen = 0;
     private String title = null;
+    private boolean repaintPending = false;
 
     public TerminalPane() {
         super();
@@ -68,14 +72,21 @@ public class TerminalPane extends JComponent {
             }
         });
 
+        caret.install(this);
 
-        addFocusListener(new FocusAdapter() {
+        addFocusListener(new FocusListener() {
             @Override
             public void focusGained(FocusEvent e) {
-                super.focusGained(e);
-                System.out.println("FOCUS");
+                caret.setVisible(caretEnabled);
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                caret.setVisible(false);
             }
         });
+
+
     }
 
     /**
@@ -95,8 +106,8 @@ public class TerminalPane extends JComponent {
     public void switchScreen(int id, boolean restoreCaret) {
         if (activeScreen != id) {
             activeScreen = id;
-            activeScreenBuffer.lastCaretX = caretX;
-            activeScreenBuffer.lastCaretY = caretY;
+            activeScreenBuffer.lastCaretX = caret.getCaretX();
+            activeScreenBuffer.lastCaretY = caret.getCaretY();
 
             activeScreenBuffer = screens.get(id);
             if (activeScreenBuffer == null) {
@@ -104,11 +115,11 @@ public class TerminalPane extends JComponent {
                 screens.put(id, activeScreenBuffer);
             }
             if (restoreCaret) {
-                caretX = activeScreenBuffer.lastCaretX;
-                caretY = activeScreenBuffer.lastCaretY;
+                caret.setCaret(activeScreenBuffer.lastCaretX, activeScreenBuffer.lastCaretY);
             }
             System.out.println("Switched to screen " + id);
-            repaint();
+            activeScreenBuffer.repaint = true;
+            triggerRepaint();
         }
     }
 
@@ -119,23 +130,23 @@ public class TerminalPane extends JComponent {
     }
 
     /**
-     * Moved the caret relative. Scrolls if the margin reached.
+     * Moved the caret relative. Scrolls if the margin is reached.
      *
      * @param xd The delta in x-direction.
      * @param yd The delta in y-direction.
      */
     public void moveCaret(int xd, int yd) {
-        caretX += xd;
-        caretY += yd;
-        while (caretY > activeScreenBuffer.marginBottom) {
+        caret.setCaretX(getCaretX() + xd);
+        caret.setCaretY(getCaretY() + yd);
+        while (caret.getCaretY() > activeScreenBuffer.marginBottom) {
             activeScreenBuffer.scrollDown();
-            caretY--;
+            caret.setCaretY(caret.getCaretY() - 1);
         }
-        while (caretY < activeScreenBuffer.marginTop) {
+        while (caret.getCaretY() < activeScreenBuffer.marginTop) {
             activeScreenBuffer.scrollUp();
-            caretY++;
+            caret.setCaretY(caret.getCaretY() + 1);
         }
-        repaint();
+        triggerRepaintCursor();
     }
 
     /**
@@ -146,34 +157,32 @@ public class TerminalPane extends JComponent {
      */
     public void setCaretAbsolute(int x, int y) {
         if (activeScreenBuffer.marginBottom == 0) activeScreenBuffer.marginBottom = termHeight - 1;
-        System.out.println("setCarAbs " + x + "," + y + " [" + activeScreenBuffer.marginTop + "," + activeScreenBuffer.marginBottom + "]");
         if (x < 0) x = 0;
         if (y < 0) y = 0;
-        caretX = x;
-        caretY = y;
-        while (caretY > activeScreenBuffer.marginBottom) {
-            caretY--;
+        while (y > activeScreenBuffer.marginBottom) {
+            y--;
             activeScreenBuffer.scrollDown();
         }
-        while (caretY < activeScreenBuffer.marginTop) {
-            caretY++;
+        while (y < activeScreenBuffer.marginTop) {
+            y++;
             activeScreenBuffer.scrollUp();
         }
-        repaint();
+        caret.setCaret(x, y);
+        triggerRepaintCursor();
     }
 
     /**
      * Get the x-ordinate of the caret.
      */
     public int getCaretX() {
-        return caretX;
+        return caret.getCaretX();
     }
 
     /**
      * Get the y-ordinate of the caret.
      */
     public int getCaretY() {
-        return caretY;
+        return caret.getCaretY();
     }
 
     /**
@@ -185,7 +194,7 @@ public class TerminalPane extends JComponent {
      */
     public void setCharAt(int x, int y, char b) {
         activeScreenBuffer.setCharAt(x, y, b);
-        repaint();
+        triggerRepaint();
     }
 
     /**
@@ -194,19 +203,20 @@ public class TerminalPane extends JComponent {
      * @param b The character to set
      */
     public void setChar(char b) {
-        setCharAt(caretX, caretY, b);
+        setCharAt(caret.getCaretX(), caret.getCaretY(), b);
     }
 
     @Override
     public void paintComponent(Graphics g) {
-        int x = charWidth * 3;
+        caret.caretIsCleared();
+        repaintPending = false;
+        int x = getLeftPageMargin();
         int y = ascent;
         int by = 0;
         Graphics2D g2 = (Graphics2D) g.create();
         char[] cc = {0};
         try {
             if (connected) {
-
                 synchronized (activeScreenBuffer.term) {
                     lines = activeScreenBuffer.term.toArray(lines);
                 }
@@ -216,13 +226,21 @@ public class TerminalPane extends JComponent {
                 Color currentColor = Color.RED;
                 g2.setPaint(Color.RED);
 
-                for (int i = 1; i <= lines.length; ++i) {
-                    g2.drawString(String.format("%03d", i), 0, y);
+                Rectangle r2 = g2.getClip().getBounds();
+                int startLine = 0;
+                while ((y + charHeight) < r2.getY()) {
                     y += charHeight;
+                    ++startLine;
                 }
-                y = ascent;
 
-                for (XC[] line : lines) {
+                int yp = y;
+                for (int i = startLine; i < lines.length; ++i) {
+                    g2.drawString(String.format("%03d", i + 1), 0, yp);
+                    yp += charHeight;
+                }
+
+                for (int i = startLine; i < lines.length; ++i) {
+                    XC[] line = lines[i];
                     if (line == null) {
                         break;
                     }
@@ -253,15 +271,13 @@ public class TerminalPane extends JComponent {
                     y += charHeight;
                     by += charHeight;
                 }
-                if (showCursor)
-                    g2.drawRect(x + caretX * charWidth, caretY * charHeight, charWidth, charHeight);
+                caret.drawCursor(g2);
             } else {
                 Dimension d = getSize();
-                String text = "Connecting...";
                 FontMetrics fm = g2.getFontMetrics();
-                int w = fm.stringWidth(text);
+                int w = fm.stringWidth(connectMessage);
                 g2.setPaint(Color.BLACK);
-                g2.drawString(text, (d.width - w) / 2, (d.height / 2) - fm.getAscent());
+                g2.drawString(connectMessage, (d.width - w) / 2, (d.height / 2) - fm.getAscent());
             }
         } finally {
             g2.dispose();
@@ -290,11 +306,10 @@ public class TerminalPane extends JComponent {
         if (newTermHeight < 20)
             newTermHeight = 20;
 
-        if (newTermHeight > 0 && newTermWitdh > 0 &&
-                (charHeight != newCharHeight ||
-                        charWidth != newCharWidth ||
-                        termWidth != newTermWitdh ||
-                        termHeight != newTermHeight)) {
+        if (charHeight != newCharHeight ||
+                charWidth != newCharWidth ||
+                termWidth != newTermWitdh ||
+                termHeight != newTermHeight) {
 
             charHeight = newCharHeight;
             charWidth = newCharWidth;
@@ -316,37 +331,21 @@ public class TerminalPane extends JComponent {
 
     public void clear() {
         activeScreenBuffer.clear();
-        caretX = 0;
-        caretY = 0;
-
-        repaint();
+        caret.setCaret(0, 0);
+        triggerRepaint();
     }
 
     public void deleteChar() {
-        XC[] line = activeScreenBuffer.term.get(caretY);
-        for (int x = caretX; x < (line.length - 1); ++x) {
+        XC[] line = activeScreenBuffer.term.get(getCaretY());
+        for (int x = getCaretX(); x < (line.length - 1); ++x) {
             line[x] = line[x + 1];
         }
         line[line.length - 1] = null;
-        repaint();
+        triggerRepaint();
     }
 
     public void insert(char c) {
-        XC[] line = activeScreenBuffer.term.get(caretY);
-        if (line.length <= caretX) {
-            line = Arrays.copyOf(line, caretX + 10);
-            activeScreenBuffer.term.set(caretY, line);
-        }
-        for (int x = (line.length - 1); x > caretX; --x) {
-            line[x] = line[x - 1];
-        }
-        XC xc = line[caretX];
-        if (xc == null)
-            line[caretX] = xc = new XC();
-        xc.c = c;
-        xc.color = foreground;
-        xc.background = background;
-        repaint();
+        activeScreenBuffer.insert(getCaretX(), getCaretY(), c);
     }
 
     public void setTitle(String text) {
@@ -362,7 +361,6 @@ public class TerminalPane extends JComponent {
 
     public void setMargins(int top, int bottom) {
         activeScreenBuffer.setMargins(top, bottom);
-        repaint();
     }
 
     public Color getCharForeground() {
@@ -396,6 +394,66 @@ public class TerminalPane extends JComponent {
         return "";
     }
 
+    public void setConnected(boolean connected, String message) {
+        this.connected = connected;
+        if (message != null)
+            this.connectMessage = message;
+        repaint();
+    }
+
+    protected void updateCursor() {
+        System.out.println("update cursor");
+        Graphics2D g2 = (Graphics2D) getGraphics().create();
+        try {
+            caret.resetBlinking();
+            caret.drawCursor(g2);
+        } finally {
+            g2.dispose();
+        }
+    }
+
+    protected void triggerRepaint() {
+        triggerRepaint(null);
+    }
+
+    protected void triggerRepaint(Rectangle area) {
+        if (area == null) {
+            repaintArea = new Rectangle(0, 0, getWidth(), getHeight());
+        } else {
+            if (repaintArea != null)
+                repaintArea.add(area);
+            else
+                repaintArea = area;
+        }
+        if (repaintArea != null || activeScreenBuffer.repaint) {
+            activeScreenBuffer.repaint = false;
+            if (!repaintPending) {
+                repaintPending = true;
+                SwingUtilities.invokeLater(() -> {
+                    Rectangle r = repaintArea;
+                    repaintArea = null;
+                    if (r == null)
+                        repaint();
+                    else
+                        repaint(r);
+                });
+            }
+        }
+    }
+
+    protected void triggerRepaintCursor() {
+        // Check if we need a full repaint.
+        triggerRepaint(repaintArea);
+        // If not, update cursor manually.
+        if (!repaintPending) {
+            SwingUtilities.invokeLater(() -> updateCursor());
+        }
+    }
+
+    public int getLeftPageMargin() {
+        return charWidth * 4;
+    }
+
     static final class XC {
         Color color;
         Color background;
@@ -403,23 +461,39 @@ public class TerminalPane extends JComponent {
     }
 
     class Screen {
+
         /**
          * Zero based upper margin in range [0, termHeight-1[
          */
         public int marginTop = 0;
-
+        public boolean repaint = false;
         /**
          * Zero based lower margin in range [1, termHeight[
          */
         public int marginBottom = 0;
-
         public int lastCaretX;
         public int lastCaretY;
-
         public List<XC[]> topScrollBuffer = new ArrayList<>(100);
         public List<XC[]> bottomScrollBuffer = new ArrayList<>(100);
-
         public List<XC[]> term = new ArrayList<>(100);
+
+        public void insert(int x, int y, char c) {
+            XC[] line = term.get(y);
+            if (line.length <= x) {
+                line = Arrays.copyOf(line, x + 10);
+                term.set(y, line);
+            }
+            for (int xp = (line.length - 1); xp > x; --xp) {
+                line[xp] = line[xp - 1];
+            }
+            XC xc = line[x];
+            if (xc == null)
+                line[x] = xc = new XC();
+            xc.c = c;
+            xc.color = foreground;
+            xc.background = background;
+            repaint = true;
+        }
 
         public void setMargins(int top, int bottom) {
             System.out.println("setMargins(" + marginTop + "," + marginBottom + ") -> (" + top + "," + bottom + ")");
@@ -453,6 +527,7 @@ public class TerminalPane extends JComponent {
             term.clear();
             setMargins(0, termHeight - 1);
             ensureSpace();
+            repaint = true;
         }
 
         public void scrollDown() {
@@ -462,18 +537,23 @@ public class TerminalPane extends JComponent {
                 term.add(marginBottom, new XC[termWidth]);
             else
                 term.add(marginBottom, bottomScrollBuffer.remove(bottomScrollBuffer.size() - 1));
-            System.out.println("After ScrollDown: [" + marginTop + "," + marginBottom + "] term:" + term.size());
+            repaint = true;
         }
 
         public void scrollUp() {
             bottomScrollBuffer.add(term.remove(marginBottom));
             term.add(marginTop, topScrollBuffer.remove(topScrollBuffer.size() - 1));
+            repaint = true;
             System.out.println("After ScrollUp: [" + marginTop + "," + marginBottom + "] term:" + term.size());
         }
 
+        /**
+         * Sets a character with current attributes at the zero based coordinates.<br>
+         * Scrolls, if the position is outside the margin.
+         */
         public void setCharAt(int x, int y, char b) {
             try {
-                System.out.println("char (" + x + "," + y + ")=" + (b < ' ' ? "Ox" + Integer.toHexString(b) : "" + b));
+                // System.out.println("char (" + x + "," + y + ")=" + (b < ' ' ? "Ox" + Integer.toHexString(b) : "" + b));
                 if (y >= 0) {
                     while (y > marginBottom) {
                         scrollDown();
@@ -492,9 +572,13 @@ public class TerminalPane extends JComponent {
                         xc = new XC();
                         l[x] = xc;
                     }
-                    xc.c = b;
-                    xc.color = foreground;
-                    xc.background = background;
+                    // Simplify by instance-compare.
+                    if (xc.c != b || xc.color != foreground || xc.background != background) {
+                        xc.c = b;
+                        xc.color = foreground;
+                        xc.background = background;
+                        repaint = true;
+                    }
                     --x;
                     while (x >= 0 && l[x] == null) {
                         l[x--] = new XC();

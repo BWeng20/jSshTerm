@@ -9,6 +9,7 @@ package com.bw.sshTerm;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -67,7 +68,13 @@ public abstract class TerminalControl {
 
     public abstract String getPtyType();
 
-    public abstract void handleChar(byte c);
+    /**
+     * Handle char and return any answer to the terminal server.
+     *
+     * @param c The byte to handle.
+     * @return the answer to send or null.
+     */
+    public abstract byte[] handleChar(byte c);
 
     /**
      * Installs the control to a pane and connects to a terminal-channel.
@@ -78,6 +85,7 @@ public abstract class TerminalControl {
     public void install(ShellChannel term, TerminalPane pane) {
         this.term = term;
         pane.addKeyListener(keyListener);
+        pane.setFocusTraversalKeysEnabled(false);
         this.pane = pane;
         pane.addPropertyChangeListener(TerminalPane.PROPERTY_TERM_SIZE, evt -> {
             System.out.println("Term Size Changed: " + evt);
@@ -88,12 +96,29 @@ public abstract class TerminalControl {
         term.setPtySize(d[0], d[1], d[2], d[3]);
     }
 
-    public void handleShellOutput(byte[] buffer, int bytesRead) {
+    /**
+     * Handles output from the terminal server.
+     *
+     * @param buffer    The input buffer
+     * @param bytesRead Number of bytes to handle in the buffer.
+     * @return answer to send to terminal server or null.
+     */
+    public byte[] handleShellOutput(byte[] buffer, int bytesRead) {
+        ByteArrayOutputStream bs = new ByteArrayOutputStream(100);
         for (int i = 0; i < bytesRead; ++i) {
-            handleChar(buffer[i]);
+            byte[] answer = handleChar(buffer[i]);
+            if (answer != null)
+                bs.write(answer, 0, answer.length);
         }
+        if (bs.size() > 0)
+            return bs.toByteArray();
+        else
+            return null;
     }
 
+    /**
+     * Gets the terminal pane.
+     */
     public TerminalPane getPane() {
         return pane;
     }

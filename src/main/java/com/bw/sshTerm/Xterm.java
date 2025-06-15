@@ -2,6 +2,7 @@ package com.bw.sshTerm;
 
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -9,6 +10,7 @@ import java.nio.charset.StandardCharsets;
  */
 public class Xterm extends TerminalControl {
 
+    public static final Charset charset = StandardCharsets.US_ASCII;
     private State state = State.normal;
     private Type type = null;
     private StringBuilder arguments = new StringBuilder();
@@ -19,37 +21,44 @@ public class Xterm extends TerminalControl {
     public byte[] getCtrlCodes(boolean ctrlDown, int keyCode, char keyChar) {
         byte[] data = null;
         if (ctrlDown) {
-            switch (keyCode) {
-                case KeyEvent.VK_A:
-                    data = new byte[]{1}; // Start of Heading (SOH)
-                    break;
-                case KeyEvent.VK_C:
-                    data = new byte[]{3}; // SIGINT
-                    break;
-                case KeyEvent.VK_D:
-                    data = new byte[]{4}; // End of Transmission (EOT)
-                    break;
-                case KeyEvent.VK_E:
-                    data = new byte[]{5}; // Enquiry (ENQ
-                    break;
-                case KeyEvent.VK_Z:
-                    data = new byte[]{26}; // Suspend (SIGTSTP)
-                    break;
-                case KeyEvent.VK_L:
-                    data = new byte[]{12}; // FormFeed
-                    break;
-                case KeyEvent.VK_X:
-                    data = new byte[]{0x18}; // Cancel (CAN)
-                    break;
-                case KeyEvent.VK_LEFT:
-                    data = "\033[1;5D".getBytes(StandardCharsets.US_ASCII); // Left
-                    break;
-                case KeyEvent.VK_RIGHT:
-                    data = "\033[1;5C".getBytes(StandardCharsets.US_ASCII); // Right
-                    break;
-                default:
-                    break;
-            }
+            System.out.println("Ctrl Code " + keyCode + "(0x" + Integer.toHexString(keyCode) + ") char " + keyChar);
+            data =
+                    switch (keyCode) {
+                        case KeyEvent.VK_A -> new byte[]{1}; // Start of Heading (SOH)
+                        case KeyEvent.VK_B -> new byte[]{2}; // Start of Text (STX)
+                        case KeyEvent.VK_C -> new byte[]{3}; // ETX (End of Text)
+                        case KeyEvent.VK_D -> new byte[]{4}; // End of Transmission (EOT)
+                        case KeyEvent.VK_E -> new byte[]{5}; // Enquiry (ENQ
+                        case KeyEvent.VK_F -> new byte[]{6}; // ACK (Acknowledge)
+                        case KeyEvent.VK_G -> new byte[]{7}; // BEL (Bell)
+                        case KeyEvent.VK_H -> new byte[]{8}; // BS (Backspace)
+                        case KeyEvent.VK_I -> new byte[]{9}; // HT (Horizontal Tab)
+                        case KeyEvent.VK_J -> new byte[]{10}; // LF (Line Feed)
+                        case KeyEvent.VK_K -> new byte[]{11}; // VT (Vertical Tabulation)
+                        case KeyEvent.VK_L -> new byte[]{12}; // FF (Form Feed)
+                        case KeyEvent.VK_M -> new byte[]{13}; // CR (Carriage Return)
+                        case KeyEvent.VK_N -> new byte[]{14}; // SO (Shift Out)
+                        case KeyEvent.VK_O -> new byte[]{15}; // SI (Shift In)
+                        case KeyEvent.VK_P -> new byte[]{16}; // DLE (Data Link Escape)
+                        case KeyEvent.VK_Q -> new byte[]{0x11}; // DC1	(Device Control One (X-On))
+                        case KeyEvent.VK_R -> new byte[]{0x12}; // DC2	(Device Control Two)
+                        case KeyEvent.VK_S -> new byte[]{0x13}; // DC3	(Device Control Three (XOFF))
+                        case KeyEvent.VK_T -> new byte[]{0x14}; // DC4	(Device Control Four
+                        case KeyEvent.VK_U -> new byte[]{0x15}; // NAK	(Negative Acknowledge)
+                        case KeyEvent.VK_V -> new byte[]{0x16}; // SYN	(Synchronous Idle)
+                        case KeyEvent.VK_W -> new byte[]{0x17}; // ETB	(End of Transmission Block)
+                        case KeyEvent.VK_X -> new byte[]{0x18}; // CAN	(Cancel)
+                        case KeyEvent.VK_Y -> new byte[]{0x19}; // EM	(End of medium)
+                        case KeyEvent.VK_Z -> new byte[]{0x1A}; // SUB	(Substitute) / Suspend (SIGTSTP)
+                        case KeyEvent.VK_LEFT -> "\033[1;5D".getBytes(charset); // Left
+                        case KeyEvent.VK_RIGHT -> "\033[1;5C".getBytes(charset); // Right
+                        default -> switch (keyChar) {
+                            case '[' -> new byte[]{0x1B}; // ESC (Escape)
+                            case '\\' -> new byte[]{0x1C}; // FS	(File Separator)
+                            case ']' -> new byte[]{0x1D}; // GS (Group Separator)
+                            default -> null;
+                        };
+                    };
         } else {
             String s =
                     switch (keyCode) {
@@ -69,7 +78,7 @@ public class Xterm extends TerminalControl {
                     data = new byte[]{(byte) keyChar};
                 }
             } else {
-                data = s.getBytes(StandardCharsets.US_ASCII);
+                data = s.getBytes(charset);
             }
         }
         return data;
@@ -82,7 +91,7 @@ public class Xterm extends TerminalControl {
 
     protected void addChar(char c) {
         if (pane.getCaretX() >= pane.termWidth) {
-            pane.setCaretAbsolute(0, pane.caretY + 1);
+            pane.setCaretAbsolute(0, pane.getCaretY() + 1);
             pane.setChar(c);
         } else {
             pane.setChar(c);
@@ -91,7 +100,8 @@ public class Xterm extends TerminalControl {
     }
 
     @Override
-    public void handleChar(byte c) {
+    public byte[] handleChar(byte c) {
+        byte[] answer = null;
         switch (state) {
             case normal -> {
                 switch (c) {
@@ -100,19 +110,14 @@ public class Xterm extends TerminalControl {
                     case 27 -> {
                         state = State.esc;
                         arguments.setLength(0);
-                        return;
                     }
-                    case 13 -> pane.setCaretAbsolute(0, pane.caretY);
+                    case 13 -> pane.setCaretAbsolute(0, pane.getCaretY());
                     case 8 -> {
                         System.out.println("BS ");
                         pane.moveCaret(-1, 0);
                     }
-                    case 10 -> {
-                        pane.setCaretAbsolute(0, pane.caretY + 1);
-                    }
-                    default -> {
-                        addChar((char) c);
-                    }
+                    case 10 -> pane.setCaretAbsolute(0, pane.getCaretY() + 1);
+                    default -> addChar((char) c);
                 }
             }
             case esc -> {
@@ -157,13 +162,13 @@ public class Xterm extends TerminalControl {
                     infix = c;
                     state = State.arguments;
                 } else {
-                    handleCommand(c);
+                    answer = handleCommand(c);
                     state = State.normal;
                 }
             }
             case escSingleChar -> {
                 // Esc with one single character. First char in infix
-                handleCommand(c);
+                answer = handleCommand(c);
                 state = State.normal;
             }
             case arguments -> {
@@ -171,12 +176,13 @@ public class Xterm extends TerminalControl {
                         (type == Type.osc && c >= 32 && c <= 126)) {
                     arguments.append((char) c);
                 } else {
-                    handleCommand(c);
+                    answer = handleCommand(c);
                     state = State.normal;
                     type = null;
                 }
             }
         }
+        return answer;
     }
 
     protected void applySgrCode(int code) {
@@ -211,60 +217,42 @@ public class Xterm extends TerminalControl {
             }
             case 28 -> { // Visible, i.e., not hidden (VT300)
             }
-            case 30 -> { // Set foreground color to Black
-                pane.setCharForeground(Color.BLACK);
-            }
-            case 31 -> { // Set foreground color to Red
-                pane.setCharForeground(Color.RED);
-            }
-            case 32 -> { // Set foreground color to Green
-                pane.setCharForeground(Color.GREEN);
-            }
-            case 33 -> { // Set foreground color to Yellow
-                pane.setCharForeground(Color.YELLOW);
-            }
-            case 34 -> { // Set foreground color to Blue
-                pane.setCharForeground(Color.BLUE);
-            }
-            case 35 -> { // Set foreground color to Magenta
-                pane.setCharForeground(Color.MAGENTA);
-            }
-            case 36 -> { // Set foreground color to Cyan
-                pane.setCharForeground(Color.CYAN);
-            }
-            case 37 -> { // Set foreground color to White
-                pane.setCharForeground(Color.WHITE);
-            }
-            case 39 -> { // Set foreground color to default (original)
-                pane.setCharForeground(null);
-            }
-            case 40 -> { // Set background color to Black
-                pane.setCharBackground(Color.BLACK);
-            }
-            case 41 -> { // Set background color to Red
-                pane.setCharBackground(Color.RED);
-            }
-            case 42 -> { // Set background color to Green
-                pane.setCharBackground(Color.GREEN);
-            }
-            case 43 -> { // Set background color to Yellow
-                pane.setCharBackground(Color.YELLOW);
-            }
-            case 44 -> { // Set background color to Blue
-                pane.setCharBackground(Color.BLUE);
-            }
-            case 45 -> { // Set background color to Magenta
-                pane.setCharBackground(Color.MAGENTA);
-            }
-            case 46 -> { // Set background color to Cyan
-                pane.setCharBackground(Color.CYAN);
-            }
-            case 47 -> { // Set background color to White
-                pane.setCharBackground(Color.WHITE);
-            }
-            case 49 -> { // Set background color to default (original).
-                pane.setCharBackground(null);
-            }
+            case 30 -> // Set foreground color to Black
+                    pane.setCharForeground(Color.BLACK);
+            case 31 -> // Set foreground color to Red
+                    pane.setCharForeground(Color.RED);
+            case 32 -> // Set foreground color to Green
+                    pane.setCharForeground(Color.GREEN);
+            case 33 -> // Set foreground color to Yellow
+                    pane.setCharForeground(Color.YELLOW);
+            case 34 -> // Set foreground color to Blue
+                    pane.setCharForeground(Color.BLUE);
+            case 35 -> // Set foreground color to Magenta
+                    pane.setCharForeground(Color.MAGENTA);
+            case 36 -> // Set foreground color to Cyan
+                    pane.setCharForeground(Color.CYAN);
+            case 37 -> // Set foreground color to White
+                    pane.setCharForeground(Color.WHITE);
+            case 39 -> // Set foreground color to default (original)
+                    pane.setCharForeground(null);
+            case 40 -> // Set background color to Black
+                    pane.setCharBackground(Color.BLACK);
+            case 41 -> // Set background color to Red
+                    pane.setCharBackground(Color.RED);
+            case 42 -> // Set background color to Green
+                    pane.setCharBackground(Color.GREEN);
+            case 43 -> // Set background color to Yellow
+                    pane.setCharBackground(Color.YELLOW);
+            case 44 -> // Set background color to Blue
+                    pane.setCharBackground(Color.BLUE);
+            case 45 -> // Set background color to Magenta
+                    pane.setCharBackground(Color.MAGENTA);
+            case 46 -> // Set background color to Cyan
+                    pane.setCharBackground(Color.CYAN);
+            case 47 -> // Set background color to White
+                    pane.setCharBackground(Color.WHITE);
+            case 49 -> // Set background color to default (original).
+                    pane.setCharBackground(null);
         }
     }
 
@@ -276,13 +264,23 @@ public class Xterm extends TerminalControl {
         return params.length > n && !params[n].isEmpty() ? params[n] : defaultVal;
     }
 
-    public void handleCsiCommand(byte c, String[] params) {
+    protected byte[] handleCsiCommand(byte c, String[] params) {
         System.out.println("Command CSI " + (infix == 0 ? "" : "" + (char) infix) + (c >= 32 ? "'" + ((char) c) + "'" : String.valueOf(c)) + " {" + String.join(",", params) + "}");
+        byte[] response = null;
         switch ((char) c) {
+            case 'c' -> {
+                // Send Device Attributes (Primary DA).
+                int ps = getIntParameter(0, 0, params);
+                switch (ps) {
+                    case 0 -> //   Request attributes from terminal.
+                        //   -> CSI?1;2c = VT100 with Advanced Video Option
+                            response = "CSI?1;2c".getBytes(charset);
+                }
+            }
             case 'd' -> { // VPA Move to the corresponding vertical position (line Ps) of the current column (default 1).
                 int ps = getIntParameter(0, 1, params) - 1;
-                System.out.println(" -> Move caret to " + pane.caretX + "," + ps);
-                pane.setCaretAbsolute(pane.caretX, ps);
+                System.out.println(" -> Move caret to " + pane.getCaretX() + "," + ps);
+                pane.setCaretAbsolute(pane.getCaretX(), ps);
             }
             case 'h' -> {
                 if (infix == '?') {
@@ -311,9 +309,8 @@ public class Xterm extends TerminalControl {
                             }
                             case 10 -> { //  Show toolbar (rxvt)
                             }
-                            case 12 -> { //  Start Blinking Cursor (att610)
-                                System.out.println(" -> Start Blinking Cursor (not yet)");
-                            }
+                            case 12 -> //  Start Blinking Cursor (att610)
+                                    System.out.println(" -> Start Blinking Cursor (not yet)");
                             case 18 -> { //  Print form feed (DECPFF)
                             }
                             case 19 -> { //  Set print extent to full screen (DECPEX)
@@ -340,9 +337,9 @@ public class Xterm extends TerminalControl {
                             }
                             case 46 -> { //  Start Logging (normally disabled by a compile-time option)
                             }
-                            case 47 -> { //  Use Alternate Screen Buffer (unless disabled by the titeInhibit resource)
-                                pane.switchScreen(1, false);
-                            }
+                            case 47,
+                                 1047 -> //  Use Alternate Screen Buffer (unless disabled by the titeInhibit resource)
+                                    pane.switchScreen(1, false);
                             case 66 -> { //  Application keypad (DECNKM)
                             }
                             case 67 -> { //  Backarrow key sends backspace (DECBKM)
@@ -364,9 +361,6 @@ public class Xterm extends TerminalControl {
                             case 1036 -> { // Send ESC when Meta modifies a key (enables the metaSendsEscape resource).
                             }
                             case 1037 -> { // Send DEL from the editing-keypad Delete key
-                            }
-                            case 1047 -> { // Use Alternate Screen Buffer (unless disabled by the titeInhibit resource)
-                                pane.switchScreen(1, false);
                             }
                             case 1048 -> { // Save cursor as in DECSC (unless disabled by the titeInhibit resource)
                             }
@@ -395,7 +389,7 @@ public class Xterm extends TerminalControl {
                     }
 
                 } else {
-
+                    // Nothing for now.
                 }
             }
             case 'l' -> {
@@ -404,9 +398,8 @@ public class Xterm extends TerminalControl {
                     for (String p : params) {
                         int ps = Integer.parseInt(p);
                         switch (ps) {
-                            case 1 -> { // Normal Cursor Keys (DECCKM).
-                                System.out.println(" -> Normal Cursor Keys");
-                            }
+                            case 1 -> // Normal Cursor Keys (DECCKM).
+                                    System.out.println(" -> Normal Cursor Keys");
                             case 2 -> { // Designate VT52 mode (DECANM).
                             }
                             case 3 -> { // 80 Column Mode (DECCOLM).
@@ -419,18 +412,16 @@ public class Xterm extends TerminalControl {
                             }
                             case 9 -> { // Don’t send Mouse X & Y on button press.
                             }
-                            case 12 -> { // Stop Blinking Cursor.
-                                System.out.println(" -> Stop Blinking Cursor");
-                            }
+                            case 12 -> // Stop Blinking Cursor.
+                                    System.out.println(" -> Stop Blinking Cursor");
                             case 25 -> { // Hide Cursor (DECTCEM).
                                 System.out.println(" -> Hide Cursor");
                                 pane.showCursor = false;
                             }
                             case 45 -> { // No reverse wrap-around.
                             }
-                            case 47 -> { // Use Normal Screen Buffer.
-                                pane.switchScreen(0, false);
-                            }
+                            case 47 -> // Use Normal Screen Buffer.
+                                    pane.switchScreen(0, false);
                             case 66 -> { // Numeric keypad (DECNKM).
                             }
                             case 1000 -> { // Don’t send Mouse reports.
@@ -549,16 +540,16 @@ public class Xterm extends TerminalControl {
                         }
                         case 19 -> { // Report the size of the screen in characters as CSI 9 ; height ; width t
                         }
-                        case 20 -> { // Report xterm window’s icon label as OSC L label S} ] case 21 -> { // Report xterm window’s title as OSC l title S}
+                        case 20 -> { // Report xterm window’s icon label as OSC L label S
                         }
-                        case 22 -> { //   Save window title on stack.
-                            System.out.println(" -> Save window title on stack.");
+                        case 21 -> { // Report xterm window’s title as OSC l title S
+                        }
+                        case 22 -> //   Save window title on stack.
                             // Ps2 = 0, 1, 2    Save window title.
-                        }
-                        case 23 -> { //     Restore window title from stack.
-                            System.out.println(" -> Restore window title from stack.");
+                                System.out.println(" -> Save window title on stack.");
+                        case 23 -> //     Restore window title from stack.
                             // Ps2 = 0, 1, 2    Restore window title.
-                        }
+                                System.out.println(" -> Restore window title from stack.");
                         default -> {
                             // >= 2 4 → Resize to P s lines (DECSLPP)
                         }
@@ -569,7 +560,7 @@ public class Xterm extends TerminalControl {
             case 'A' // CUU - Cursor Up
                     -> {
                 System.out.println(" -> Cursor Up");
-                pane.setCaretAbsolute(pane.caretX, pane.caretY - 1);
+                pane.setCaretAbsolute(pane.getCaretX(), pane.getCaretY() - 1);
             }
             case 'B' // CUD - Cursor Down
                     -> {
@@ -580,8 +571,8 @@ public class Xterm extends TerminalControl {
                 // Cursor Character Absolute [column] (default = [row,1]) (CHA)
                 // Moves cursor to the Ps-th column of the active line. The default value of Ps is 1.
                 int ps = getIntParameter(0, 1, params) - 1;
-                System.out.println(" -> Move caret to " + ps + "," + pane.caretY);
-                pane.setCaretAbsolute(ps, pane.caretY);
+                System.out.println(" -> Move caret to " + ps + "," + pane.getCaretY());
+                pane.setCaretAbsolute(ps, pane.getCaretY());
             }
             case 'f', // HVP - Horizontal and Vertical Position (identisch zu CUP)
                  'H' -> // CUP - sCursor Position
@@ -603,9 +594,7 @@ public class Xterm extends TerminalControl {
                     {
                     }
                     case 2 -> // Erase All
-                    {
-                        pane.clear();
-                    }
+                            pane.clear();
                     case 3 -> // Erase Saved Lines
                     {
                         // TODO: Currently no concept for "first visible line""
@@ -620,8 +609,8 @@ public class Xterm extends TerminalControl {
                 int mode = params.length > 0 && !params[0].isEmpty() ? Integer.parseInt(params[0]) : 0;
                 switch (mode) {
                     case 0: // Erase to Right
-                        for (int x = pane.termWidth - 1; x >= pane.caretX; --x)
-                            pane.setCharAt(x, pane.caretY, ' ');
+                        for (int x = pane.termWidth - 1; x >= pane.getCaretX(); --x)
+                            pane.setCharAt(x, pane.getCaretY(), ' ');
                         break;
                     case 1: // Erase to Left
                         break;
@@ -649,9 +638,10 @@ public class Xterm extends TerminalControl {
             default -> {
             }
         }
+        return response;
     }
 
-    public void handleOscCommand(byte c, String[] params) {
+    protected byte[] handleOscCommand(byte c, String[] params) {
         System.out.println("Command OSC " + (infix == 0 ? "" : "" + (char) infix) + (c >= 32 ? "'" + ((char) c) + "'" : String.valueOf(c)) + " {" + String.join(",", params) + "}");
         switch (c) {
             case 7, (byte) 0x9C -> // BELL or ST: Set Text Parameters
@@ -698,13 +688,14 @@ public class Xterm extends TerminalControl {
                 }
             }
         }
+        return null;
     }
 
     /**
      * Simple 2 char commands
      */
-    public void handleEscCommand(byte first, byte second) {
-        System.out.print("Command ESC" + ((char) first) + "" + (second == 0 ? "" : (char) second) + " -> ");
+    public byte[] handleEscCommand(byte first, byte second) {
+        System.out.print("Command ESC" + ((char) first) + (second == 0 ? "" : " " + (char) second) + " -> ");
 
         switch (first) {
             case ' ' -> {
@@ -728,16 +719,13 @@ public class Xterm extends TerminalControl {
                     default -> System.out.println("Unknown");
                 }
             }
-            case '%' -> {
-                System.out.println(" todo");
-            }
+            case '%' -> System.out.println(" todo");
             case '(' -> System.out.println("Designate G0 Character Set (ISO 2022) " + second);
             case ')' -> System.out.println("Designate G1 Character Set (ISO 2022) " + second);
             case '*' -> System.out.println("Designate G2 Character Set (ISO 2022) " + second);
             case '+' -> System.out.println("Designate G3 Character Set (ISO 2022) " + second);
 
-            case '7' -> {
-                // Save Cursor (DECSC)
+            case '7' -> // Save Cursor (DECSC)
                 // things saved & restored here is defined by DEC:
                 // https://vt100.net/docs/vt510-rm/DECSC.html
                 // - Cursor position
@@ -748,19 +736,12 @@ public class Xterm extends TerminalControl {
                 // - Selective erase attribute
                 // - Any single shift 2 (SS2) or single shift 3 (SS3) functions sent
                 //
-                System.out.println("Save Cursor");
-            }
-            case '8' -> {
-                //Restore Cursor (DECRC)
-                System.out.println("Restore Cursor");
-            }
-            case '=' -> {
-                // Application Keypad (DECPAM)
-                System.out.println("Application Keypad");
-            }
-            case '>' -> {
-                System.out.println("Normal Keypad (DECPNM)");
-            }
+                    System.out.println("Save Cursor");
+            case '8' -> //Restore Cursor (DECRC)
+                    System.out.println("Restore Cursor");
+            case '=' -> // Application Keypad (DECPAM)
+                    System.out.println("Application Keypad");
+            case '>' -> System.out.println("Normal Keypad (DECPNM)");
             case 'D' -> {
                 // IND Index
                 System.out.println("Move the cursor one line down scrolling if needed.");
@@ -769,74 +750,53 @@ public class Xterm extends TerminalControl {
             case 'E' -> {
                 // NEL	Next Line
                 System.out.println("Move the cursor to the beginning of the next row");
-                pane.setCaretAbsolute(0, pane.caretY + 1);
+                pane.setCaretAbsolute(0, pane.getCaretY() + 1);
             }
-            case 'F' -> {
-                System.out.println("Cursor to lower left corner of screen (disabled)");
-            }
-            case 'H' -> {
-                // HTS Horizontal Tabulation Set
-                System.out.println("Places a tab stop at the current cursor position");
-            }
+            case 'F' -> System.out.println("Cursor to lower left corner of screen (disabled)");
+            case 'H' -> // HTS Horizontal Tabulation Set
+                    System.out.println("Places a tab stop at the current cursor position");
             case 'M' -> { // IR	Reverse Index
                 System.out.println("Move the cursor one line up scrolling if needed.");
                 pane.moveCaret(0, -1);
             }
-            case 'c' -> {
-                System.out.println("Full Reset (RIS)");
-            }
-            case 'l' -> {
-                System.out.println("Locks memory above the cursor (HP terminals");
-            }
-            case 'm' -> {
-                System.out.println("Memory Unlock (HP terminals)");
-            }
-            case 'n' -> {
-                System.out.println("Invoke the G2 Character Set as GL (LS2)");
-            }
-            case 'o' -> {
-                System.out.println("Invoke the G3 Character Set as GL (LS3)");
-            }
-            case '|' -> {
-                System.out.println("Invoke the G3 Character Set as GR (LS3R).");
-            }
-            case '}' -> {
-                System.out.println("Invoke the G2 Character Set as GR (LS2R)");
-            }
-            case '~' -> {
-                System.out.println("Invoke the G1 Character Set as GR (LS1R)");
-            }
+            case 'c' -> System.out.println("Full Reset (RIS)");
+            case 'l' -> System.out.println("Locks memory above the cursor (HP terminals");
+            case 'm' -> System.out.println("Memory Unlock (HP terminals)");
+            case 'n' -> System.out.println("Invoke the G2 Character Set as GL (LS2)");
+            case 'o' -> System.out.println("Invoke the G3 Character Set as GL (LS3)");
+            case '|' -> System.out.println("Invoke the G3 Character Set as GR (LS3R).");
+            case '}' -> System.out.println("Invoke the G2 Character Set as GR (LS2R)");
+            case '~' -> System.out.println("Invoke the G1 Character Set as GR (LS1R)");
             default -> System.out.println("Unknown");
         }
+        return null;
     }
 
-    public void handleCommand(byte c) {
-        String r = null;
+    protected byte[] handleCommand(byte c) {
         String[] params = arguments.toString().split(";");
 
-        switch (type) {
+        // Nope
+        return switch (type) {
             case csi -> handleCsiCommand(c, params);
             case osc -> handleOscCommand(c, params);
-            case pm -> {
+            case pm ->
                 // Nope
-            }
-            case escSingleChar -> {
-                handleEscCommand(infix, c);
-            }
-        }
+                    null;
+            case escSingleChar -> handleEscCommand(infix, c);
+        };
     }
 
-    public enum Type {
+    protected enum Type {
         // Control Sequence Intro
         csi,
         // Operating System Command
         osc,
         // Private Message (TODO: do we need this?)
         pm,
-        escSingleChar;
+        escSingleChar
     }
 
-    public enum State {
+    protected enum State {
         normal,
         esc,
         // type indicator

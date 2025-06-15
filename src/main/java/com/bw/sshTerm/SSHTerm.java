@@ -85,7 +85,7 @@ public class SSHTerm extends JPanel {
     /**
      * Starts a session. The channel needs to be in unconnected state.
      *
-     * @throws IOException   Throws if JSch fails due to some io-operation.
+     * @throws IOException Throws if JSch fails due to some io-operation.
      */
     public void connect(String user, String password, String host, int port) throws IOException {
         try {
@@ -97,12 +97,12 @@ public class SSHTerm extends JPanel {
                 pane.setSize(scroller.getViewport().getSize());
             }
             pane.requestFocusInWindow();
-
             ctrl.install(channel, pane);
-            pane.connected = true;
+            pane.setConnected(true, null);
             revalidate();
         } catch (Exception e) {
             e.printStackTrace();
+            pane.setConnected(false, "No connection possible!");
         }
 
     }
@@ -115,7 +115,7 @@ public class SSHTerm extends JPanel {
         if (this.channel != null) {
             this.channel.disconnect();
             this.channel = null;
-            pane.connected = false;
+            pane.setConnected(false, "Disconnected");
         }
     }
 
