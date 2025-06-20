@@ -2,8 +2,8 @@ plugins {
     id 'java'
 }
 
-group = 'org.example'
-version = '1.0-SNAPSHOT'
+group = 'io.github.bweng20'
+version = '0.2'
 
 repositories {
     mavenCentral()

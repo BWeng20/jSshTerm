@@ -74,7 +74,8 @@ public class SSHTerm extends JPanel {
         frame.setVisible(true);
         try {
             // Calling with null as user or password will trigger input dialogs,
-            term.connect("bernd", "bernd", "127.0.0.1", 22);
+            // TODO: REPLACE THIS with your arguments or persistent settings.
+            term.connect("myUser", "myPassword", "127.0.0.1", 22);
 
         } catch (Exception ex) {
             ex.printStackTrace();
