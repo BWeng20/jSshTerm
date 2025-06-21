@@ -23,10 +23,10 @@ import java.io.PrintStream;
 public class SSHTerm extends JPanel {
 
     /** The terminal pane thats displays the terminal content.*/
-    private TerminalPane pane = new TerminalPane();
+    private final TerminalPane pane = new TerminalPane();
 
     /** The controller that interprets keys from user and esc control sequences from server.*/
-    private TerminalControl ctrl = new Xterm();
+    private final TerminalControl ctrl = new Xterm();
 
     /** The SSH Shell channel to connect to the server. */
     private ShellChannel channel;
@@ -34,7 +34,7 @@ public class SSHTerm extends JPanel {
     /**
      * Optional scroll bar the pane can use to control scrollback-buffer.
      */
-    private JScrollBar scroller = new JScrollBar(JScrollBar.VERTICAL);
+    private final JScrollBar scroller = new JScrollBar(JScrollBar.VERTICAL);
 
     /**
      * Create a new terminal. To start a session use {@link #connect}.
@@ -92,9 +92,8 @@ public class SSHTerm extends JPanel {
     /**
      * Starts a session. The channel needs to be in unconnected state.
      *
-     * @throws IOException Throws if JSch fails due to some io-operation.
      */
-    public void connect(String user, String password, String host, int port) throws IOException {
+    public void connect(String user, String password, String host, int port) {
         try {
             if (channel == null)
                 channel = new JschShellChannel();
@@ -164,14 +163,16 @@ public class SSHTerm extends JPanel {
 
         public static void usage(PrintStream ps) {
             ps.println(
-                    "SSHTerm Options:\n" +
-                            "\t--login, -l     Login name, default is current user\n" +
-                            "\t--secret, -s    Password, will be requested if missing\n" +
-                            "\t--host, -h      SSH Server, default 127.0.0.1\n" +
-                            "\t--port, -p      SSH Port, default 22\n" +
-                            "\t--help, -?      Print help and exit\n\n" +
-                            "Example:\n" +
-                            " java com.bw.sshTerm.SSHTerm -l me -s myPassword -h 1.2.3.4"
+                    """
+                            SSHTerm Options:
+                            \t--login, -l     Login name, default is current user
+                            \t--secret, -s    Password, will be requested if missing
+                            \t--host, -h      SSH Server, default 127.0.0.1
+                            \t--port, -p      SSH Port, default 22
+                            \t--help, -?      Print help and exit
+                            
+                            Example:
+                             java com.bw.sshTerm.SSHTerm -l me -s myPassword -h 1.2.3.4"""
             );
         }
 

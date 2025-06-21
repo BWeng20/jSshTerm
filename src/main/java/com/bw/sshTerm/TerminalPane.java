@@ -33,7 +33,6 @@ public class TerminalPane extends JComponent {
      */
     public final static String PROPERTY_TERM_SIZE = "termSize";
 
-    ;
     protected final Caret caret = new Caret();
     private final Map<Integer, Screen> screens = new HashMap<>();
     public boolean showCursor = true;
@@ -446,7 +445,7 @@ public class TerminalPane extends JComponent {
         triggerRepaint(repaintArea);
         // If not, update cursor manually.
         if (!repaintPending) {
-            SwingUtilities.invokeLater(() -> updateCursor());
+            SwingUtilities.invokeLater(this::updateCursor);
         }
     }
 
