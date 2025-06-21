@@ -542,7 +542,8 @@ public class TerminalPane extends JComponent {
 
         public void scrollUp() {
             bottomScrollBuffer.add(term.remove(marginBottom));
-            term.add(marginTop, topScrollBuffer.remove(topScrollBuffer.size() - 1));
+            XC[] top = topScrollBuffer.isEmpty() ? new XC[0] : topScrollBuffer.remove(topScrollBuffer.size() - 1);
+            term.add(marginTop, top);
             repaint = true;
             System.out.println("After ScrollUp: [" + marginTop + "," + marginBottom + "] term:" + term.size());
         }
