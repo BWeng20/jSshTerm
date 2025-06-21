@@ -15,18 +15,25 @@ import java.awt.event.ComponentEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
+import java.io.PrintStream;
 
 /**
- * A simple SSH xterm shell via JSch shell channel.<br>
- * Works for "dumb" or "xterm" terminal mode.
+ * Demonstrates usage of the ssh shell.
  */
 public class SSHTerm extends JPanel {
 
-    String CSI = "\033[";
+    /** The terminal pane thats displays the terminal content.*/
     private TerminalPane pane = new TerminalPane();
+
+    /** The controller that interprets keys from user and esc control sequences from server.*/
     private TerminalControl ctrl = new Xterm();
+
+    /** The SSH Shell channel to connect to the server. */
     private ShellChannel channel;
 
+    /**
+     * Optional scroll bar the pane can use to control scrollback-buffer.
+     */
     private JScrollBar scroller = new JScrollBar(JScrollBar.VERTICAL);
 
     /**
@@ -44,7 +51,9 @@ public class SSHTerm extends JPanel {
      */
     public static void main(String[] args) {
 
-        JFrame frame = new JFrame("Term");
+        final Arguments arguments = new Arguments(args);
+
+        JFrame frame = new JFrame("Term" );
         frame.setLayout(new BorderLayout());
 
         SSHTerm term = new SSHTerm();
@@ -58,7 +67,6 @@ public class SSHTerm extends JPanel {
         frame.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
-                System.out.println("RESIZED");
                 term.pane.updateTerminalSpecs();
             }
         });
@@ -74,14 +82,12 @@ public class SSHTerm extends JPanel {
         frame.setVisible(true);
         try {
             // Calling with null as user or password will trigger input dialogs,
-            // TODO: REPLACE THIS with your arguments or persistent settings.
-            term.connect("myUser", "myPassword", "127.0.0.1", 22);
+            term.connect(arguments.login, arguments.password, arguments.host, arguments.port);
 
         } catch (Exception ex) {
             ex.printStackTrace();
         }
     }
-
 
     /**
      * Starts a session. The channel needs to be in unconnected state.
@@ -93,21 +99,16 @@ public class SSHTerm extends JPanel {
             if (channel == null)
                 channel = new JschShellChannel();
             channel.connect(user, password, host, port, ctrl);
-            JScrollPane scroller = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, this);
-            if (scroller != null) {
-                pane.setSize(scroller.getViewport().getSize());
-            }
             pane.requestFocusInWindow();
             ctrl.install(channel, pane);
             pane.setConnected(true, null);
             revalidate();
         } catch (Exception e) {
             e.printStackTrace();
-            pane.setConnected(false, "No connection possible!");
+            pane.setConnected(false, "No connection possible!" );
         }
 
     }
-
 
     /**
      * Needs to be called if shell shall be closed.
@@ -116,7 +117,75 @@ public class SSHTerm extends JPanel {
         if (this.channel != null) {
             this.channel.disconnect();
             this.channel = null;
-            pane.setConnected(false, "Disconnected");
+            pane.setConnected(false, "Disconnected" );
+        }
+    }
+
+    /**
+     * There are good libs to handle arguments.
+     * But as this code is only for demonstration, a dependency would pollute this lib.
+     * So let parse manually...
+     */
+    public static class Arguments {
+
+        final String[] args;
+        public String login = null;
+        public String password = null;
+        public String host = "127.0.0.1";
+        public int port = 22;
+        int nextArgIndex;
+
+
+        public Arguments(String[] args) {
+            this.args = args;
+            nextArgIndex = 0;
+
+            for (String a = nextArgument(); a != null; a = nextArgument()) {
+                switch (a) {
+                    case "--login", "-l" -> login = getArgValue();
+                    case "--secret", "-s" -> password = getArgValue();
+                    case "--host", "-h" -> host = getArgValue();
+                    case "--port", "-p" -> {
+                        try {
+                            port = Integer.parseInt(getArgValue());
+                        } catch (NumberFormatException ne) {
+                            System.err.println("Port argument must be some number." );
+                            System.exit(-2);
+                        }
+                    }
+                    case "--help", "-?" -> {
+                        usage(System.out);
+                        System.exit(0);
+                    }
+                }
+            }
+
+        }
+
+        public static void usage(PrintStream ps) {
+            ps.println(
+                    "SSHTerm Options:\n" +
+                            "\t--login, -l     Login name, default is current user\n" +
+                            "\t--secret, -s    Password, will be requested if missing\n" +
+                            "\t--host, -h      SSH Server, default 127.0.0.1\n" +
+                            "\t--port, -p      SSH Port, default 22\n" +
+                            "\t--help, -?      Print help and exit\n\n" +
+                            "Example:\n" +
+                            " java com.bw.sshTerm.SSHTerm -l me -s myPassword -h 1.2.3.4"
+            );
+        }
+
+        private String nextArgument() {
+            return (nextArgIndex < args.length) ? args[nextArgIndex++].toLowerCase() : null;
+        }
+
+        private String getArgValue() {
+            if (nextArgIndex < args.length)
+                return args[nextArgIndex++];
+            System.err.println("Missing value for option," );
+            usage(System.err);
+            System.exit(-1);
+            return null;
         }
     }
 
