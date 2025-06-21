@@ -38,6 +38,7 @@ public class TerminalPane extends JComponent {
     public boolean showCursor = true;
     public Color background;
     public Color foreground;
+    public int charStyle;
     protected boolean connected;
     protected int charWidth;
     protected int charHeight;
@@ -54,12 +55,19 @@ public class TerminalPane extends JComponent {
     private String title = null;
     private boolean repaintPending = false;
 
+    private Map<RenderingHints.Key, Object> hints;
+
     public TerminalPane() {
+        this("Monospaced-PLAIN-14");
+    }
+
+    public TerminalPane(String fontDescription) {
+
         super();
         enableEvents(AWTEvent.KEY_EVENT_MASK | AWTEvent.INPUT_METHOD_EVENT_MASK);
 
         setLayout(null);
-        setFont(new Font("Monospaced", Font.PLAIN, 14));
+        setFont(Font.decode(fontDescription));
         setFocusable(true);
         setRequestFocusEnabled(true);
         setEnabled(true);
@@ -84,8 +92,12 @@ public class TerminalPane extends JComponent {
                 caret.setVisible(false);
             }
         });
+    }
 
-
+    public void addRenderingHint(RenderingHints.Key key, Object value) {
+        if (hints == null)
+            hints = new HashMap<>();
+        hints.put(key, value);
     }
 
     /**
@@ -207,13 +219,22 @@ public class TerminalPane extends JComponent {
 
     @Override
     public void paintComponent(Graphics g) {
+        final Graphics2D g2 = (Graphics2D) g.create();
+
+        if (hints != null)
+            g2.setRenderingHints(hints);
+
         caret.caretIsCleared();
         repaintPending = false;
         int x = getLeftPageMargin();
         int y = ascent;
         int by = 0;
-        Graphics2D g2 = (Graphics2D) g.create();
         char[] cc = {0};
+        final Font normal = getFont();
+        Font currentFont = normal;
+        Font bold = null;
+        int currentStyle = 0;
+        boolean underlined = false;
         try {
             if (connected) {
                 synchronized (activeScreenBuffer.term) {
@@ -251,7 +272,7 @@ public class TerminalPane extends JComponent {
                         Color BG = c.background == null ? background : c.background;
                         if (BG != background) {
                             if (BG != currentColor) {
-                                g2.setPaint(BG);
+                                g2.setColor(BG);
                                 currentColor = BG;
                             }
                             g2.fillRect(cx, by, charWidth, charHeight);
@@ -260,10 +281,28 @@ public class TerminalPane extends JComponent {
                             cc[0] = c.c;
                             Color FB = c.color == null ? foreground : c.color;
                             if (FB != currentColor) {
-                                g2.setPaint(FB);
+                                g2.setColor(FB);
                                 currentColor = FB;
                             }
+                            if (currentStyle != c.style) {
+                                currentStyle = c.style;
+                                if ((currentStyle & CharStyle.BOLD) != 0) {
+                                    if (bold == null)
+                                        bold = currentFont.deriveFont(Font.BOLD);
+                                    if (currentFont != bold) {
+                                        currentFont = bold;
+                                        g2.setFont(currentFont);
+                                    }
+                                } else if (currentFont != normal) {
+                                    currentFont = normal;
+                                    g2.setFont(currentFont);
+                                }
+                                underlined = (currentStyle & CharStyle.UNDERLINED) != 0;
+                            }
                             g2.drawChars(cc, 0, 1, cx, y);
+                            if (underlined) {
+                                g2.drawLine(cx, y + 1, cx + charWidth - 1, y + 1);
+                            }
                         }
                         cx += charWidth;
                     }
@@ -379,6 +418,24 @@ public class TerminalPane extends JComponent {
     }
 
     /**
+     * Set char style by combination of values from {@link CharStyle}.
+     *
+     * @param style The style, combination of values from {@link CharStyle}.
+     */
+    public void setCharStyle(int style) {
+        charStyle = style;
+    }
+
+    public int getCharStyle(int i) {
+        return charStyle;
+    }
+
+    public void clearCharStyle(int i) {
+        charStyle = (charStyle & ~i);
+    }
+
+
+    /**
      * Get the system clip-board content.
      */
     public String getClipboardContents() {
@@ -456,6 +513,7 @@ public class TerminalPane extends JComponent {
     static final class XC {
         Color color;
         Color background;
+        int style;
         char c;
     }
 
@@ -491,6 +549,7 @@ public class TerminalPane extends JComponent {
             xc.c = c;
             xc.color = foreground;
             xc.background = background;
+            xc.style = charStyle;
             repaint = true;
         }
 
@@ -577,6 +636,7 @@ public class TerminalPane extends JComponent {
                         xc.c = b;
                         xc.color = foreground;
                         xc.background = background;
+                        xc.style = charStyle;
                         repaint = true;
                     }
                     --x;

@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
  */
 public abstract class TerminalControl {
 
+    static final boolean debug = true;
     protected ShellChannel term;
     protected TerminalPane pane;
     protected KeyListener keyListener = new KeyAdapter() {
@@ -25,10 +26,11 @@ public abstract class TerminalControl {
         public void keyPressed(KeyEvent e) {
             // TODO: We need to know if the sequences are supported by the terminal...
             try {
-                byte[] x = getCtrlCodes((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0, e.getKeyCode(), e.getKeyChar());
+                int modifiers = e.getModifiersEx();
+                byte[] x = getCtrlCodes((modifiers & KeyEvent.CTRL_DOWN_MASK) != 0 && (modifiers & KeyEvent.ALT_DOWN_MASK) == 0, e.getKeyCode(), e.getKeyChar());
                 if (x != null)
                     term.write(x);
-                else
+                else {
                     switch (e.getKeyCode()) {
                         case KeyEvent.VK_V:
                             String clipboardText = pane.getClipboardContents();
@@ -38,7 +40,7 @@ public abstract class TerminalControl {
                         default:
                             break;
                     }
-                ;
+                }
                 e.consume();
             } catch (Exception ex) {
                 ex.printStackTrace();
@@ -55,6 +57,25 @@ public abstract class TerminalControl {
             e.consume();
         }
     };
+    private boolean inChars = false;
+
+    protected void log(String message) {
+        if (inChars) {
+            System.out.print("\n");
+            inChars = false;
+        }
+        System.out.print(message);
+    }
+
+    protected void logChar(char c) {
+        inChars = true;
+        if (c < ' ' || c > 127) {
+            System.out.print( c + "[" + Integer.toHexString(c) + "]");
+        } else {
+            System.out.print(c);
+        }
+
+    }
 
     /**
      * Get control codes for specific keys.

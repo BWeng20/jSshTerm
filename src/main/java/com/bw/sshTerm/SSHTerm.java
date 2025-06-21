@@ -14,7 +14,6 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.io.IOException;
 import java.io.PrintStream;
 
 /**
@@ -22,25 +21,32 @@ import java.io.PrintStream;
  */
 public class SSHTerm extends JPanel {
 
-    /** The terminal pane thats displays the terminal content.*/
-    private final TerminalPane pane = new TerminalPane();
+    /**
+     * The terminal pane that displays the terminal content.
+     */
+    private final TerminalPane pane;
 
-    /** The controller that interprets keys from user and esc control sequences from server.*/
+    /**
+     * The controller that interprets keys from user and esc control sequences from server.
+     */
     private final TerminalControl ctrl = new Xterm();
-
-    /** The SSH Shell channel to connect to the server. */
-    private ShellChannel channel;
-
     /**
      * Optional scroll bar the pane can use to control scrollback-buffer.
      */
     private final JScrollBar scroller = new JScrollBar(JScrollBar.VERTICAL);
+    /**
+     * The SSH Shell channel to connect to the server.
+     */
+    private ShellChannel channel;
 
     /**
      * Create a new terminal. To start a session use {@link #connect}.
      */
-    public SSHTerm() {
+    public SSHTerm(Arguments arguments) {
         super(new BorderLayout());
+        pane = new TerminalPane(arguments.font);
+        pane.addRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        pane.addRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
         add(BorderLayout.CENTER, pane);
         add(BorderLayout.EAST, scroller);
 
@@ -53,10 +59,10 @@ public class SSHTerm extends JPanel {
 
         final Arguments arguments = new Arguments(args);
 
-        JFrame frame = new JFrame("Term" );
+        JFrame frame = new JFrame("Term");
         frame.setLayout(new BorderLayout());
 
-        SSHTerm term = new SSHTerm();
+        SSHTerm term = new SSHTerm(arguments);
 
         frame.setContentPane(term);
         frame.setPreferredSize(new Dimension(800, 900));
@@ -91,7 +97,6 @@ public class SSHTerm extends JPanel {
 
     /**
      * Starts a session. The channel needs to be in unconnected state.
-     *
      */
     public void connect(String user, String password, String host, int port) {
         try {
@@ -104,7 +109,7 @@ public class SSHTerm extends JPanel {
             revalidate();
         } catch (Exception e) {
             e.printStackTrace();
-            pane.setConnected(false, "No connection possible!" );
+            pane.setConnected(false, "No connection possible!");
         }
 
     }
@@ -116,7 +121,7 @@ public class SSHTerm extends JPanel {
         if (this.channel != null) {
             this.channel.disconnect();
             this.channel = null;
-            pane.setConnected(false, "Disconnected" );
+            pane.setConnected(false, "Disconnected");
         }
     }
 
@@ -128,6 +133,7 @@ public class SSHTerm extends JPanel {
     public static class Arguments {
 
         final String[] args;
+        public String font = "Monospaced-PLAIN-14";
         public String login = null;
         public String password = null;
         public String host = "127.0.0.1";
@@ -141,6 +147,7 @@ public class SSHTerm extends JPanel {
 
             for (String a = nextArgument(); a != null; a = nextArgument()) {
                 switch (a) {
+                    case "--font", "-f" -> font = getArgValue();
                     case "--login", "-l" -> login = getArgValue();
                     case "--secret", "-s" -> password = getArgValue();
                     case "--host", "-h" -> host = getArgValue();
@@ -148,7 +155,7 @@ public class SSHTerm extends JPanel {
                         try {
                             port = Integer.parseInt(getArgValue());
                         } catch (NumberFormatException ne) {
-                            System.err.println("Port argument must be some number." );
+                            System.err.println("Port argument must be some number.");
                             System.exit(-2);
                         }
                     }
@@ -169,6 +176,7 @@ public class SSHTerm extends JPanel {
                             \t--secret, -s    Password, will be requested if missing
                             \t--host, -h      SSH Server, default 127.0.0.1
                             \t--port, -p      SSH Port, default 22
+                            \t--font, -f      Font description, default 'Monospaced-PLAIN-14' 
                             \t--help, -?      Print help and exit
                             
                             Example:
@@ -183,7 +191,7 @@ public class SSHTerm extends JPanel {
         private String getArgValue() {
             if (nextArgIndex < args.length)
                 return args[nextArgIndex++];
-            System.err.println("Missing value for option," );
+            System.err.println("Missing value for option,");
             usage(System.err);
             System.exit(-1);
             return null;

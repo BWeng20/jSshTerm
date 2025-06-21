@@ -106,7 +106,7 @@ public class Caret {
      */
     public void setVisible(boolean visible) {
         if (this.visible != visible) {
-            System.out.println("switched visible " + visible);
+            System.out.println("Switched Caret visible " + visible);
             this.visible = visible;
             pane.triggerRepaintCursor();
         }

@@ -10,18 +10,20 @@ import java.nio.charset.StandardCharsets;
  */
 public class Xterm extends TerminalControl {
 
-    public static final Charset charset = StandardCharsets.US_ASCII;
+    public static final Charset asciiCharset = StandardCharsets.US_ASCII;
+    int uft8Codepoint = 0;
     private State state = State.normal;
+    private int utf8BytesLeft = 0;
     private Type type = null;
     private StringBuilder arguments = new StringBuilder();
-
-    private byte infix = 0;
+    private int infix = 0;
     private boolean bracketedPasteMode = false;
 
     public byte[] getCtrlCodes(boolean ctrlDown, int keyCode, char keyChar) {
         byte[] data = null;
         if (ctrlDown) {
-            System.out.println("Ctrl Code " + keyCode + "(0x" + Integer.toHexString(keyCode) + ") char " + keyChar+ " ("+((int)keyChar)+")");
+            if (debug)
+                log("Ctrl Code " + keyCode + "(0x" + Integer.toHexString(keyCode) + ") char " + keyChar + " (" + ((int) keyChar) + ")\n");
             data =
                     switch (keyCode) {
                         case KeyEvent.VK_A -> new byte[]{1}; // Start of Heading (SOH)
@@ -51,8 +53,8 @@ public class Xterm extends TerminalControl {
                         case KeyEvent.VK_Y -> new byte[]{0x19}; // EM	(End of medium)
                         case KeyEvent.VK_Z -> new byte[]{0x1A}; // SUB	(Substitute) / Suspend (SIGTSTP)
                         case KeyEvent.VK_SPACE -> new byte[]{0};
-                        case KeyEvent.VK_LEFT -> "\033[1;5D".getBytes(charset); // Left
-                        case KeyEvent.VK_RIGHT -> "\033[1;5C".getBytes(charset); // Right
+                        case KeyEvent.VK_LEFT -> "\033[1;5D".getBytes(asciiCharset); // Left
+                        case KeyEvent.VK_RIGHT -> "\033[1;5C".getBytes(asciiCharset); // Right
                         default -> switch (keyChar) {
                             case '[' -> new byte[]{0x1B}; // ESC (Escape)
                             case '\\' -> new byte[]{0x1C};// FS (File Separator)
@@ -62,6 +64,8 @@ public class Xterm extends TerminalControl {
                         };
                     };
         } else {
+            if (debug)
+                log("Code " + keyCode + "(0x" + Integer.toHexString(keyCode) + ") char " + keyChar + " (" + ((int) keyChar) + ")\n");
             String s =
                     switch (keyCode) {
                         case KeyEvent.VK_UP -> "\033[A";
@@ -76,11 +80,10 @@ public class Xterm extends TerminalControl {
                         default -> null;
                     };
             if (s == null) {
-                if (keyChar < 256) {
-                    data = new byte[]{(byte) keyChar};
-                }
+                if (keyChar != KeyEvent.CHAR_UNDEFINED)
+                    data = (new String(new char[]{keyChar})).getBytes(StandardCharsets.UTF_8);
             } else {
-                data = s.getBytes(charset);
+                data = s.getBytes(asciiCharset);
             }
         }
         return data;
@@ -115,11 +118,48 @@ public class Xterm extends TerminalControl {
                     }
                     case 13 -> pane.setCaretAbsolute(0, pane.getCaretY());
                     case 8 -> {
-                        System.out.println("BS ");
+                        if (debug) log("BS ");
                         pane.moveCaret(-1, 0);
                     }
                     case 10 -> pane.setCaretAbsolute(0, pane.getCaretY() + 1);
-                    default -> addChar((char) c);
+                    default -> {
+                        if (debug) logChar((char) c);
+                        if ((c & 0b10000000) == 0) {
+                            // 1-Byte ASCII
+                            addChar((char) c);
+                            uft8Codepoint = 0;
+                            utf8BytesLeft = 0;
+                        } else if ((c & 0b11000000) == 0b10000000) {
+                            // Part of Utf8 sequence
+                            uft8Codepoint <<= 6;
+                            uft8Codepoint |= 0x3F & c;
+                            if ((--utf8BytesLeft) == 0) {
+                                if (Character.isBmpCodePoint(uft8Codepoint)) {
+                                    if (debug) log("utf8 char " + ((char) uft8Codepoint) + "\n");
+                                    addChar((char) uft8Codepoint);
+                                } else {
+                                    log("Characters outside BMP range are not supported: 0x" + Integer.toHexString(uft8Codepoint) + "\n");
+                                    addChar('?');
+                                }
+                            }
+                        } else if ((c & 0b11100000) == 0b11000000) {
+                            // 2-Byte utf8
+                            uft8Codepoint = 0x1F & c;
+                            utf8BytesLeft = 1;
+                        } else if ((c & 0b11110000) == 0b11100000) {
+                            // 3-Byte utf8
+                            uft8Codepoint = 0x0F & c;
+                            utf8BytesLeft = 2;
+                        } else if ((c & 0b11111000) == 0b11110000) {
+                            // 4-Byte utf8
+                            uft8Codepoint = 0x07 & c;
+                            utf8BytesLeft = 3;
+                        } else {
+                            uft8Codepoint = 0;
+                            utf8BytesLeft = 0;
+                            log("Illegal utf8 start byte 0x" + Integer.toHexString(0x00FF & c));
+                        }
+                    }
                 }
             }
             case esc -> {
@@ -188,30 +228,31 @@ public class Xterm extends TerminalControl {
     }
 
     protected void applySgrCode(int code) {
-        System.out.println("Sgr " + code);
+        if (debug) log(" -> Sgr " + code);
         switch (code) {
             case 0 -> { // Normal (default)
                 pane.setCharBackground(null);
                 pane.setCharForeground(null);
+                pane.setCharStyle(0);
             }
-            case 1 -> { // Bold
-            }
-            case 4 -> { // Underlined
-            }
-            case 5 -> { // Blink (appears as Bold)
-            }
+            case 1 -> // Bold
+                    pane.setCharStyle(CharStyle.BOLD);
+            case 4 -> // Underlined
+                    pane.setCharStyle(CharStyle.UNDERLINED);
+            case 5 -> // Blink (appears as Bold)
+                    pane.setCharStyle(CharStyle.BOLD);
             case 7 -> { // Inverse
                 pane.setCharBackground(pane.getForeground());
                 pane.setCharForeground(pane.getBackground());
             }
             case 8 -> { // Invisible, i.e., hidden (VT300)
             }
-            case 22 -> { // Normal (neither bold nor faint)
-            }
-            case 24 -> { // Not underlined
-            }
-            case 25 -> { // Steady (not blinking)
-            }
+            case 22 -> // Normal (neither bold nor faint)
+                    pane.setCharStyle(0);
+            case 24 -> // Not underlined
+                    pane.clearCharStyle(CharStyle.UNDERLINED);
+            case 25 -> // Steady (not blinking)
+                    pane.clearCharStyle(CharStyle.BOLD);
             case 27 -> { // Positive (not inverse)
                 Color bg = pane.getCharBackground();
                 pane.setCharBackground(pane.getCharForeground());
@@ -266,8 +307,9 @@ public class Xterm extends TerminalControl {
         return params.length > n && !params[n].isEmpty() ? params[n] : defaultVal;
     }
 
-    protected byte[] handleCsiCommand(byte c, String[] params) {
-        System.out.println("Command CSI " + (infix == 0 ? "" : "" + (char) infix) + (c >= 32 ? "'" + ((char) c) + "'" : String.valueOf(c)) + " {" + String.join(",", params) + "}");
+    protected byte[] handleCsiCommand(int c, String[] params) {
+        if (debug)
+            log("Command CSI " + (infix == 0 ? "" : "" + (char) infix) + (c >= 32 ? "'" + ((char) c) + "'" : String.valueOf(c)) + " {" + String.join(",", params) + "}");
         byte[] response = null;
         switch ((char) c) {
             case 'c' -> {
@@ -276,12 +318,12 @@ public class Xterm extends TerminalControl {
                 switch (ps) {
                     case 0 -> //   Request attributes from terminal.
                         //   -> CSI?1;2c = VT100 with Advanced Video Option
-                            response = "CSI?1;2c".getBytes(charset);
+                            response = "CSI?1;2c".getBytes(asciiCharset);
                 }
             }
             case 'd' -> { // VPA Move to the corresponding vertical position (line Ps) of the current column (default 1).
                 int ps = getIntParameter(0, 1, params) - 1;
-                System.out.println(" -> Move caret to " + pane.getCaretX() + "," + ps);
+                if (debug) log(" -> Move caret to " + pane.getCaretX() + "," + ps);
                 pane.setCaretAbsolute(pane.getCaretX(), ps);
             }
             case 'h' -> {
@@ -292,38 +334,55 @@ public class Xterm extends TerminalControl {
 
                         switch (ps) {
                             case 1 -> { //  Application Cursor Keys (DECCKM)
+                                if (debug) log(" -> Application Cursor Keys (NI)");
                             }
                             case 2 -> { //  Designate USASCII for character sets G0-G3 (DECANM), and set VT100 mode.
+                                if (debug)
+                                    log(" -> Designate USASCII for character sets G0-G3 (DECANM), and set VT100 mode (NI)");
                             }
                             case 3 -> { //  132 Column Mode (DECCOLM)
+                                if (debug) log(" -> 132 Column Mode (NI)");
                             }
                             case 4 -> { //  Smooth (Slow) Scroll (DECSCLM)
+                                if (debug) log(" -> Smooth (Slow) Scroll (NI)");
                             }
                             case 5 -> { //  Reverse Video (DECSCNM)
+                                if (debug) log(" -> Reverse Video (NI)");
                             }
                             case 6 -> { //  Origin Mode (DECOM)
+                                if (debug) log(" ->  Origin Mode (NI)");
                             }
                             case 7 -> { //  Wraparound Mode (DECAWM)
+                                if (debug) log(" ->  Wraparound Mode (NI)");
                             }
                             case 8 -> { //  Auto-repeat Keys (DECARM)
+                                if (debug) log(" -> Auto-repeat Keys (NI)");
                             }
                             case 9 -> { //  Send Mouse X & Y on button press. See the section Mouse Tracking.
+                                if (debug) log(" -> Send Mouse X & Y on button press (NI)");
                             }
                             case 10 -> { //  Show toolbar (rxvt)
+                                if (debug) log(" -> Show toolbar (NI)");
                             }
                             case 12 -> //  Start Blinking Cursor (att610)
-                                    System.out.println(" -> Start Blinking Cursor (not yet)");
+                            {
+                                if (debug) log(" -> Start Blinking Cursor (NI)");
+                            }
                             case 18 -> { //  Print form feed (DECPFF)
+                                if (debug) log(" ->  Print form feed (NI)");
                             }
                             case 19 -> { //  Set print extent to full screen (DECPEX)
+                                if (debug) log(" ->  Set print extent to full screen (NI)");
                             }
                             case 25 -> { //  Show Cursor (DECTCEM)
-                                System.out.println(" -> Show Cursor");
+                                if (debug) log(" -> Show Cursor");
                                 pane.showCursor = true;
                             }
                             case 30 -> { //  Show scrollbar (rxvt).
+                                if (debug) log(" -> Show Scrollbar (NI)");
                             }
                             case 35 -> { //  Enable font-shifting functions (rxvt).
+                                if (debug) log(" -> Enable font-shifting (NI)");
                             }
                             case 38 -> { //  Enter Tektronix Mode (DECTEK)
                             }
@@ -338,6 +397,7 @@ public class Xterm extends TerminalControl {
                             case 45 -> { //  Reverse-wraparound Mode
                             }
                             case 46 -> { //  Start Logging (normally disabled by a compile-time option)
+                                // Disabled
                             }
                             case 47,
                                  1047 -> //  Use Alternate Screen Buffer (unless disabled by the titeInhibit resource)
@@ -384,7 +444,7 @@ public class Xterm extends TerminalControl {
                             case 1061 -> { // Set Sun/PC keyboard emulation of VT220 keyboard.
                             }
                             case 2004 -> { // Set bracketed paste mode.
-                                System.out.println(" -> bracketedPasteMode on");
+                                if (debug) log(" -> bracketedPasteMode on");
                                 bracketedPasteMode = true;
                             }
                         }
@@ -401,49 +461,73 @@ public class Xterm extends TerminalControl {
                         int ps = Integer.parseInt(p);
                         switch (ps) {
                             case 1 -> // Normal Cursor Keys (DECCKM).
-                                    System.out.println(" -> Normal Cursor Keys");
+                            {
+                                if (debug) log(" -> Normal Cursor Keys (NI)");
+                            }
                             case 2 -> { // Designate VT52 mode (DECANM).
+                                if (debug) log(" -> Designate VT52 mode (NI)");
                             }
                             case 3 -> { // 80 Column Mode (DECCOLM).
+                                if (debug) log(" -> 80 Column Mode (NI)");
                             }
                             case 6 -> { // Normal Cursor Mode (DECOM).
+                                if (debug) log(" -> Normal Cursor Mode (NI)");
                             }
                             case 7 -> { // No Wraparound Mode (DECAWM).
+                                if (debug) log(" -> No Wraparound Mode (NI)");
                             }
                             case 8 -> { // No Auto-repeat Keys (DECARM).
+                                if (debug) log(" -> No Auto-repeat Keys (NI)");
                             }
                             case 9 -> { // Don’t send Mouse X & Y on button press.
+                                if (debug) log(" -> Don’t send Mouse X & Y on button press (NI)");
                             }
                             case 12 -> // Stop Blinking Cursor.
-                                    System.out.println(" -> Stop Blinking Cursor");
+                            {
+                                if (debug)
+                                    log(" -> Stop Blinking Cursor (NI)");
+                            }
                             case 25 -> { // Hide Cursor (DECTCEM).
-                                System.out.println(" -> Hide Cursor");
+                                if (debug) log(" -> Hide Cursor\n");
                                 pane.showCursor = false;
                             }
                             case 45 -> { // No reverse wrap-around.
+                                if (debug) log(" -> No reverse wrap-around (NI)");
                             }
                             case 47 -> // Use Normal Screen Buffer.
-                                    pane.switchScreen(0, false);
+                            {
+                                if (debug) log(" -> Use Normal Screen Buffer");
+                                pane.switchScreen(0, false);
+                            }
                             case 66 -> { // Numeric keypad (DECNKM).
+                                if (debug) log(" -> Numeric keypad (NI)");
                             }
                             case 1000 -> { // Don’t send Mouse reports.
+                                if (debug) log(" -> Don’t send Mouse reports (NI)");
                             }
                             case 1002 -> { // Don’t use Cell Motion Mouse Tracking.
+                                if (debug) log(" -> Don’t use Cell Motion Mouse Tracking (NI)");
                             }
                             case 1003 -> { // Don’t use All Motion Mouse Tracking.
+                                if (debug) log(" -> Don’t use All Motion Mouse Tracking (NI)");
                             }
                             case 1004 -> { // Don’t send FocusIn/FocusOut events.
+                                if (debug) log(" -> Don’t send FocusIn/FocusOut events (NI)");
                             }
                             case 1005 -> { // Disable UTF-8 Mouse Mode.
+                                if (debug) log(" -> Disable UTF-8 Mouse Mode (NI)");
                             }
                             case 1006 -> { // Disable SGR Mouse Mode.
+                                if (debug) log(" -> Disable SGR Mouse Mode (NI)");
                             }
                             case 1015 -> { // Disable urxvt Mouse Mode.
+                                if (debug) log(" -> Disable urxvt Mouse Mode (NI)");
                             }
                             case 1016 -> { // Disable SGR-Pixels Mouse Mode.
+                                if (debug) log(" -> Disable SGR-Pixels Mouse Mode (NI)");
                             }
                             case 1047 -> { // Use Normal Screen Buffer (clearing screen if in alt).
-                                System.out.println(" -> Use Normal Screen Buffer (clearing screen if in alt)");
+                                if (debug) log(" -> Use Normal Screen Buffer (clearing screen if in alt)");
                                 if (pane.getActiveScreen() == 1) {
                                     pane.switchScreen(0, false);
                                     pane.clear();
@@ -452,13 +536,13 @@ public class Xterm extends TerminalControl {
                             case 1048 -> { // Restore cursor as in DECRC.
                             }
                             case 1049 -> { // Use Normal Screen Buffer and restore cursor.
-                                System.out.println(" -> Use Normal Screen Buffer and restore cursor");
+                                if (debug) log(" -> Use Normal Screen Buffer and restore cursor");
                                 if (pane.getActiveScreen() == 1) {
                                     pane.switchScreen(0, true);
                                 }
                             }
                             case 2004 -> { // Reset bracketed paste mode.
-                                System.out.println(" -> bracketedPasteMode off");
+                                if (debug) log(" -> bracketedPasteMode off");
                                 bracketedPasteMode = false;
                             }
                         }
@@ -474,7 +558,7 @@ public class Xterm extends TerminalControl {
                             case 4 -> // Replace Mode (IRM).
                             {
                             }
-                            case 12 -> // 	Send/receive (SRM).
+                            case 12 -> // Send/receive (SRM).
                             {
 
                             }
@@ -487,7 +571,7 @@ public class Xterm extends TerminalControl {
             }
             case 'm'  // SGR - Select Graphic Rendition
                     -> {
-                System.out.println(" -> Select character attributes");
+                if (debug) log(" -> Select character attributes");
                 if (params.length == 0) {
                     applySgrCode(0);
                 } else {
@@ -499,7 +583,7 @@ public class Xterm extends TerminalControl {
             }
             case 'r' // DECSTBM
                     -> {
-                System.out.println(" -> Set top and bottom margins");
+                if (debug) log(" -> Set top and bottom margins");
                 pane.setMargins(getIntParameter(0, 1, params) - 1, getIntParameter(1, pane.termHeight, params) - 1);
                 // Set Scrolling Region
                 // Set top and bottom margins.
@@ -547,11 +631,15 @@ public class Xterm extends TerminalControl {
                         case 21 -> { // Report xterm window’s title as OSC l title S
                         }
                         case 22 -> //   Save window title on stack.
+                        {
                             // Ps2 = 0, 1, 2    Save window title.
-                                System.out.println(" -> Save window title on stack.");
+                            if (debug) log(" -> Save window title on stack (NI)");
+                        }
                         case 23 -> //     Restore window title from stack.
+                        {
                             // Ps2 = 0, 1, 2    Restore window title.
-                                System.out.println(" -> Restore window title from stack.");
+                            if (debug) log(" -> Restore window title from stack (NI)");
+                        }
                         default -> {
                             // >= 2 4 → Resize to P s lines (DECSLPP)
                         }
@@ -561,11 +649,13 @@ public class Xterm extends TerminalControl {
             }
             case 'A' // CUU - Cursor Up
                     -> {
-                System.out.println(" -> Cursor Up");
+                if (debug) log(" -> Cursor Up");
                 pane.setCaretAbsolute(pane.getCaretX(), pane.getCaretY() - 1);
             }
             case 'B' // CUD - Cursor Down
                     -> {
+                if (debug) log(" -> Cursor Down");
+                pane.setCaretAbsolute(pane.getCaretX(), pane.getCaretY() + 1);
             }
             case 'C' -> pane.moveCaret(1, 0);  // CUF - Cursor Forward
             case 'D' -> pane.moveCaret(-1, 0); // CUB - Cursor Backward
@@ -573,7 +663,7 @@ public class Xterm extends TerminalControl {
                 // Cursor Character Absolute [column] (default = [row,1]) (CHA)
                 // Moves cursor to the Ps-th column of the active line. The default value of Ps is 1.
                 int ps = getIntParameter(0, 1, params) - 1;
-                System.out.println(" -> Move caret to " + ps + "," + pane.getCaretY());
+                if (debug) log(" -> Move caret to " + ps + "," + pane.getCaretY());
                 pane.setCaretAbsolute(ps, pane.getCaretY());
             }
             case 'f', // HVP - Horizontal and Vertical Position (identisch zu CUP)
@@ -582,7 +672,7 @@ public class Xterm extends TerminalControl {
                 // Moves cursor to the Ps1-th line and to the Ps2-th column. The default value of Ps1 and Ps2 is 1.
                 int row = getIntParameter(0, 1, params) - 1;
                 int col = getIntParameter(1, 1, params) - 1;
-                System.out.println(" -> Move caret to " + col + "," + row);
+                if (debug) log(" -> Move caret to " + col + "," + row);
                 pane.setCaretAbsolute(col, row);
             }
             case 'J'  // ED - Erase in Display
@@ -591,14 +681,20 @@ public class Xterm extends TerminalControl {
                 switch (mode) {
                     case 0 -> // Erase Below (default)
                     {
+                        if (debug) log(" -> Erase Below (NI)");
                     }
                     case 1 -> // Erase Above
                     {
+                        if (debug) log(" -> Erase Above (NI)");
                     }
                     case 2 -> // Erase All
-                            pane.clear();
+                    {
+                        if (debug) log(" -> Erase All");
+                        pane.clear();
+                    }
                     case 3 -> // Erase Saved Lines
                     {
+                        if (debug) log(" -> Erase Saved Lines (NI)");
                         // TODO: Currently no concept for "first visible line""
                     }
                     default -> {
@@ -611,18 +707,22 @@ public class Xterm extends TerminalControl {
                 int mode = params.length > 0 && !params[0].isEmpty() ? Integer.parseInt(params[0]) : 0;
                 switch (mode) {
                     case 0: // Erase to Right
+                        if (debug) log(" -> Erase to Right");
                         for (int x = pane.termWidth - 1; x >= pane.getCaretX(); --x)
                             pane.setCharAt(x, pane.getCaretY(), ' ');
                         break;
                     case 1: // Erase to Left
+                        if (debug) log(" -> Erase to Left (NI)");
                         break;
                     case 2: // Erase All
+                        if (debug) log(" -> Erase All (NI)");
                         break;
                 }
             }
             case 'P' // DCH - Delete x Character(s) (default = 1) (DCH)
                     -> {
                 int x = getIntParameter(0, 1, params);
+                if (debug) log(" -> Delete " + x + " Characters");
                 while (x > 0) {
                     pane.deleteChar();
                     --x;
@@ -631,6 +731,7 @@ public class Xterm extends TerminalControl {
             case '@' // ICH - Insert x (Blank) Character(s) (default = 1)
                     -> {
                 int x = getIntParameter(0, 1, params);
+                if (debug) log(" -> Insert " + x + " blank Characters");
                 while (x > 0) {
                     pane.insert(' ');
                     --x;
@@ -640,11 +741,13 @@ public class Xterm extends TerminalControl {
             default -> {
             }
         }
+        if (debug) log("\n");
         return response;
     }
 
-    protected byte[] handleOscCommand(byte c, String[] params) {
-        System.out.println("Command OSC " + (infix == 0 ? "" : "" + (char) infix) + (c >= 32 ? "'" + ((char) c) + "'" : String.valueOf(c)) + " {" + String.join(",", params) + "}");
+    protected byte[] handleOscCommand(int c, String[] params) {
+        if (debug)
+            log("Command OSC " + (infix == 0 ? "" : "" + (char) infix) + (c >= 32 ? "'" + ((char) c) + "'" : String.valueOf(c)) + " {" + String.join(",", params) + "}");
         switch (c) {
             case 7, (byte) 0x9C -> // BELL or ST: Set Text Parameters
             {
@@ -654,18 +757,21 @@ public class Xterm extends TerminalControl {
                 switch (ps) {
                     case 0 -> // Change Icon Name and Window Title to pt
                     {
-                        System.out.println(" -> Change Icon Name and Window Title");
+                        if (debug) log(" -> Change Icon Name and Window Title (NI)");
                         pane.setTitle(pt);
                     }
                     case 1 -> { // Change Icon Name to pt
+                        if (debug) log(" -> Change Icon Name to pt (NI)");
 
                     }
                     case 2 -> { // Change Window Title to pt
+                        if (debug) log(" -> Change Window Title to pt (NI)");
 
                     }
                     case 3 -> {
                         // Set X property on top-level window.
                         // Pt should be in the form "prop=value", or just "prop" to delete the property
+                        if (debug) log(" -> Set X property on top-level window (NI)");
                     }
                     case 4 -> {
                         // pt=c;spec;... Change color number c to the color specified by spec.
@@ -674,15 +780,19 @@ public class Xterm extends TerminalControl {
                         // + their bright versions 8-15, and if supported,
                         // + the remainder of the 88-color or 256-color table.
                         // TODO: For "?" as spec, a response is needed
+                        if (debug) log(" -> Change color number (NI)");
                     }
                     case 10, 11, 12, 13, 14, 15, 16, 17, 18 -> {
                         // Dynamic colors
+                        if (debug) log(" -> Dynamic colors (NI)");
                     }
                     case 46 -> {
-                        // Change Log File to pr (disabled)
+                        // Change Log File to pr
+                        if (debug) log(" -> Change Log File to pr (disabled)");
                     }
                     case 50 -> {
                         // Set Font to pt - nope!
+                        if (debug) log(" -> Set Font to pt (disabled)");
                     }
                     case 52 -> {
                         // Manipulate Selection Data (disabled)
@@ -690,91 +800,157 @@ public class Xterm extends TerminalControl {
                 }
             }
         }
+        if (debug) log("\n");
         return null;
     }
 
     /**
      * Simple 2 char commands
      */
-    public byte[] handleEscCommand(byte first, byte second) {
-        System.out.print("Command ESC" + ((char) first) + (second == 0 ? "" : " " + (char) second) + " -> ");
+    public byte[] handleEscCommand(int first, int second) {
+        if (debug) log("Command ESC" + ((char) first) + (second == 0 ? "" : " " + (char) second) + " -> ");
 
         switch (first) {
             case ' ' -> {
                 switch (second) {
-                    case 'F' -> System.out.println("7-bit controls (S7C1T)");
-                    case 'H' -> System.out.println("8-bit controls (S8C1T)");
-                    case 'L' -> System.out.println("Set ANSI conformance level 1 (dpANS X3.134.1)");
-                    case 'M' -> System.out.println("Set ANSI conformance level 2 (dpANS X3.134.1)");
-                    case 'N' -> System.out.println("Set ANSI conformance level 3 (dpANS X3.134.1)");
-                    default -> System.out.println("Unknown");
+                    case 'F' -> {
+                        if (debug)
+                            log("7-bit controls (S7C1T)\n");
+                    }
+                    case 'H' -> {
+                        if (debug) log("8-bit controls (S8C1T)\n");
+                    }
+                    case 'L' -> {
+                        if (debug) log("Set ANSI conformance level 1 (dpANS X3.134.1)\n");
+                    }
+                    case 'M' -> {
+                        if (debug) log("Set ANSI conformance level 2 (dpANS X3.134.1)\n");
+                    }
+                    case 'N' -> {
+                        if (debug) log("Set ANSI conformance level 3 (dpANS X3.134.1)\n");
+                    }
+                    default -> {
+                        if (debug) log("Unknown\n");
+                    }
                 }
 
             }
             case '#' -> {
                 switch (second) {
-                    case '3' -> System.out.println("DEC double-height line, top half (DECDHL)");
-                    case '4' -> System.out.println("DEC double-height line, bottom half (DECDHL)");
-                    case '5' -> System.out.println("DEC single-width line (DECSWL)");
-                    case '6' -> System.out.println("DEC double-width line (DECDWL)");
-                    case '8' -> System.out.println("DEC Screen Alignment Test (DECALN)");
-                    default -> System.out.println("Unknown");
+                    case '3' -> {
+                        if (debug) log("DEC double-height line, top half (DECDHL) (NI)\n");
+                    }
+                    case '4' -> {
+                        if (debug) log("DEC double-height line, bottom half (DECDHL) (NI)\n");
+                    }
+                    case '5' -> {
+                        if (debug) log("DEC single-width line (DECSWL) (NI)\n");
+                    }
+                    case '6' -> {
+                        if (debug) log("DEC double-width line (DECDWL) (NI)\n");
+                    }
+                    case '8' -> {
+                        if (debug) log("DEC Screen Alignment Test (DECALN) (NI)\n");
+                    }
+                    default -> {
+                        if (debug) log("Unknown  (NI)\n");
+                    }
                 }
             }
-            case '%' -> System.out.println(" todo");
-            case '(' -> System.out.println("Designate G0 Character Set (ISO 2022) " + second);
-            case ')' -> System.out.println("Designate G1 Character Set (ISO 2022) " + second);
-            case '*' -> System.out.println("Designate G2 Character Set (ISO 2022) " + second);
-            case '+' -> System.out.println("Designate G3 Character Set (ISO 2022) " + second);
+            case '%' -> {
+                if (debug) log(" todo\n");
+            }
+            case '(' -> {
+                if (debug) log("Designate G0 Character Set (ISO 2022) " + ((char) second) + " (NI)\n");
+            }
+            case ')' -> {
+                if (debug) log("Designate G1 Character Set (ISO 2022) " + ((char) second) + " (NI)\n");
+            }
+            case '*' -> {
+                if (debug) log("Designate G2 Character Set (ISO 2022) " + ((char) second) + " (NI)\n");
+            }
+            case '+' -> {
+                if (debug) log("Designate G3 Character Set (ISO 2022) " + ((char) second) + " (NI)\n");
+            }
 
             case '7' -> // Save Cursor (DECSC)
-                // things saved & restored here is defined by DEC:
-                // https://vt100.net/docs/vt510-rm/DECSC.html
-                // - Cursor position
-                // - Character attributes set by the SGR command
-                // - Character sets (G0, G1, G2, or G3) currently in GL and GR
-                // - Wrap flag (autowrap or no autowrap)
-                // - State of origin mode (DECOM)
-                // - Selective erase attribute
-                // - Any single shift 2 (SS2) or single shift 3 (SS3) functions sent
-                //
-                    System.out.println("Save Cursor");
+            // things saved & restored here is defined by DEC:
+            // https://vt100.net/docs/vt510-rm/DECSC.html
+            // - Cursor position
+            // - Character attributes set by the SGR command
+            // - Character sets (G0, G1, G2, or G3) currently in GL and GR
+            // - Wrap flag (autowrap or no autowrap)
+            // - State of origin mode (DECOM)
+            // - Selective erase attribute
+            // - Any single shift 2 (SS2) or single shift 3 (SS3) functions sent
+            //
+            {
+                if (debug) log("Save Cursor (NI)\n");
+            }
             case '8' -> //Restore Cursor (DECRC)
-                    System.out.println("Restore Cursor");
+            {
+                if (debug) log("Restore Cursor (NI)\n");
+            }
             case '=' -> // Application Keypad (DECPAM)
-                    System.out.println("Application Keypad");
-            case '>' -> System.out.println("Normal Keypad (DECPNM)");
+            {
+                if (debug) log("Application Keypad (NI)\n");
+            }
+            case '>' -> {
+                if (debug) log("Normal Keypad (DECPNM) (NI)\n");
+            }
             case 'D' -> {
                 // IND Index
-                System.out.println("Move the cursor one line down scrolling if needed.");
+                if (debug) log("Move the cursor one line down scrolling if needed\n");
                 pane.moveCaret(0, 1);
             }
             case 'E' -> {
                 // NEL	Next Line
-                System.out.println("Move the cursor to the beginning of the next row");
+                if (debug) log("Move the cursor to the beginning of the next row\n");
                 pane.setCaretAbsolute(0, pane.getCaretY() + 1);
             }
-            case 'F' -> System.out.println("Cursor to lower left corner of screen (disabled)");
+            case 'F' -> {
+                if (debug) log("Cursor to lower left corner of screen (disabled)\n");
+            }
             case 'H' -> // HTS Horizontal Tabulation Set
-                    System.out.println("Places a tab stop at the current cursor position");
+            {
+                if (debug) log("Places a tab stop at the current cursor position (NI)\n");
+            }
             case 'M' -> { // IR	Reverse Index
-                System.out.println("Move the cursor one line up scrolling if needed.");
+                if (debug) log("Move the cursor one line up scrolling if needed\n");
                 pane.moveCaret(0, -1);
             }
-            case 'c' -> System.out.println("Full Reset (RIS)");
-            case 'l' -> System.out.println("Locks memory above the cursor (HP terminals");
-            case 'm' -> System.out.println("Memory Unlock (HP terminals)");
-            case 'n' -> System.out.println("Invoke the G2 Character Set as GL (LS2)");
-            case 'o' -> System.out.println("Invoke the G3 Character Set as GL (LS3)");
-            case '|' -> System.out.println("Invoke the G3 Character Set as GR (LS3R).");
-            case '}' -> System.out.println("Invoke the G2 Character Set as GR (LS2R)");
-            case '~' -> System.out.println("Invoke the G1 Character Set as GR (LS1R)");
-            default -> System.out.println("Unknown");
+            case 'c' -> {
+                if (debug) log("Full Reset (RIS) (NI)\n");
+            }
+            case 'l' -> {
+                if (debug) log("Locks memory above the cursor (HP terminals) (NI)\n");
+            }
+            case 'm' -> {
+                if (debug) log("Memory Unlock (HP terminals) (NI)\n");
+            }
+            case 'n' -> {
+                if (debug) log("Invoke the G2 Character Set as GL (LS2) (NI)\n");
+            }
+            case 'o' -> {
+                if (debug) log("Invoke the G3 Character Set as GL (LS3) (NI)\n");
+            }
+            case '|' -> {
+                if (debug) log("Invoke the G3 Character Set as GR (LS3R) (NI)\n");
+            }
+            case '}' -> {
+                if (debug) log("Invoke the G2 Character Set as GR (LS2R) (NI)\n");
+            }
+            case '~' -> {
+                if (debug) log("Invoke the G1 Character Set as GR (LS1R)v");
+            }
+            default -> {
+                if (debug) log("Unknown (NI)\n");
+            }
         }
         return null;
     }
 
-    protected byte[] handleCommand(byte c) {
+    protected byte[] handleCommand(int c) {
         String[] params = arguments.toString().split(";");
 
         // Nope
@@ -788,6 +964,9 @@ public class Xterm extends TerminalControl {
         };
     }
 
+    /**
+     * Type of control sequence.
+     */
     protected enum Type {
         // Control Sequence Intro
         csi,
@@ -798,6 +977,9 @@ public class Xterm extends TerminalControl {
         escSingleChar
     }
 
+    /**
+     * Parser State
+     */
     protected enum State {
         normal,
         esc,
