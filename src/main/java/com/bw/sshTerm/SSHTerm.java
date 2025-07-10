@@ -30,10 +30,12 @@ public class SSHTerm extends JPanel {
      * The controller that interprets keys from user and esc control sequences from server.
      */
     private final TerminalControl ctrl = new Xterm();
+
     /**
      * Optional scroll bar the pane can use to control scrollback-buffer.
      */
     private final JScrollBar scroller = new JScrollBar(JScrollBar.VERTICAL);
+
     /**
      * The SSH Shell channel to connect to the server.
      */
@@ -49,6 +51,7 @@ public class SSHTerm extends JPanel {
         pane.addRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
         add(BorderLayout.CENTER, pane);
         add(BorderLayout.EAST, scroller);
+        pane.setScrollbar(scroller);
 
     }
 
@@ -176,7 +179,7 @@ public class SSHTerm extends JPanel {
                             \t--secret, -s    Password, will be requested if missing
                             \t--host, -h      SSH Server, default 127.0.0.1
                             \t--port, -p      SSH Port, default 22
-                            \t--font, -f      Font description, default 'Monospaced-PLAIN-14' 
+                            \t--font, -f      Font description, default 'Monospaced-PLAIN-14'
                             \t--help, -?      Print help and exit
                             
                             Example:

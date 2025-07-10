@@ -68,7 +68,7 @@ public class Caret {
     public void drawCursor(Graphics2D g2) {
 
         int newCursorX = pane.getLeftPageMargin() + caretX * pane.charWidth;
-        int newCursorY = caretY * pane.charHeight;
+        int newCursorY = pane.getBaseY() + (caretY * pane.charHeight);
         boolean needsUpdateOldPosition = (lastDrawnCursorX >= 0) && (newCursorX != lastDrawnCursorX || newCursorY != lastDrawnCursorY);
 
         if (needsUpdateOldPosition) {

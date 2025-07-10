@@ -6,6 +6,7 @@
 package com.bw.sshTerm;
 
 import javax.swing.*;
+import javax.swing.event.ChangeListener;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -19,7 +20,8 @@ import java.util.List;
 
 
 /**
- * A panel to show a terminal.
+ * A panel to show a terminal.<p>
+ * The panel itself has no scrollbar. A vertical scrollbar can be bound to scroll across the scrollback-buffer by {@link #setScrollbar}.
  */
 public class TerminalPane extends JComponent {
 
@@ -49,18 +51,30 @@ public class TerminalPane extends JComponent {
     protected String connectMessage = "Connecting...";
     protected int ascent;
     Rectangle repaintArea = null;
-    private XC[][] lines = new XC[0][0];
+    private final List<XC[]> lines = new ArrayList<>();
     private Screen activeScreenBuffer = new Screen();
     private int activeScreen = 0;
     private String title = null;
     private boolean repaintPending = false;
-
+    private final ChangeListener scrollbarChangeListerer = e -> {
+        if (activeScreenBuffer != null) {
+            triggerRepaint();
+        }
+    };
+    private JScrollBar scrollbar;
+    private int baseY;
     private Map<RenderingHints.Key, Object> hints;
+
 
     public TerminalPane() {
         this("Monospaced-PLAIN-14");
     }
 
+    /**
+     * Initialize the terminal pane.
+     *
+     * @param fontDescription The font description, as described in {@link Font#decode(String)}
+     */
     public TerminalPane(String fontDescription) {
 
         super();
@@ -92,6 +106,21 @@ public class TerminalPane extends JComponent {
                 caret.setVisible(false);
             }
         });
+    }
+
+    /**
+     * Helper to get the system clip-board content.
+     */
+    public static String getClipboardContents() {
+        try {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            Transferable contents = clipboard.getContents(null);
+            if (contents != null && contents.isDataFlavorSupported(DataFlavor.stringFlavor)) {
+                return (String) contents.getTransferData(DataFlavor.stringFlavor);
+            }
+        } catch (Exception e) {
+        }
+        return "";
     }
 
     public void addRenderingHint(RenderingHints.Key key, Object value) {
@@ -130,6 +159,10 @@ public class TerminalPane extends JComponent {
             }
             System.out.println("Switched to screen " + id);
             activeScreenBuffer.repaint = true;
+
+            if (scrollbar != null)
+                scrollbar.setEnabled(activeScreen == 0);
+            configureScrollbar();
             triggerRepaint();
         }
     }
@@ -237,9 +270,20 @@ public class TerminalPane extends JComponent {
         boolean underlined = false;
         try {
             if (connected) {
-                synchronized (activeScreenBuffer.term) {
-                    lines = activeScreenBuffer.term.toArray(lines);
+                lines.clear();
+                synchronized (activeScreenBuffer) {
+                    if (activeScreen == 0 && scrollbar != null) {
+                        int sv = scrollbar.getValue();
+                        if (sv < activeScreenBuffer.topScrollBuffer.size()) {
+                            lines.addAll(activeScreenBuffer.topScrollBuffer.subList(sv, activeScreenBuffer.topScrollBuffer.size() - 1));
+                            baseY = charHeight * lines.size();
+                        }
+                    } else {
+                        baseY = 0;
+                    }
+                    lines.addAll(activeScreenBuffer.term);
                 }
+
                 final Color background = getBackground();
                 final Color foreground = getForeground();
 
@@ -253,14 +297,18 @@ public class TerminalPane extends JComponent {
                     ++startLine;
                 }
 
+                int lastLine = startLine + 1 + ((int) (r2.getHeight() / charHeight));
+                if (lastLine >= lines.size())
+                    lastLine = lines.size() - 1;
+
                 int yp = y;
-                for (int i = startLine; i < lines.length; ++i) {
+                for (int i = startLine; i <= lastLine; ++i) {
                     g2.drawString(String.format("%03d", i + 1), 0, yp);
                     yp += charHeight;
                 }
 
-                for (int i = startLine; i < lines.length; ++i) {
-                    XC[] line = lines[i];
+                for (int i = startLine; i <= lastLine; ++i) {
+                    XC[] line = lines.get(i);
                     if (line == null) {
                         break;
                     }
@@ -359,6 +407,7 @@ public class TerminalPane extends JComponent {
             }
             termHeight = newTermHeight;
             activeScreenBuffer.ensureSpace();
+            configureScrollbar();
 
             System.out.printf("\nNew Terminal Dimension: %d x %d. char %d x %d\n", termWidth, termHeight, charWidth, charHeight);
 
@@ -426,7 +475,7 @@ public class TerminalPane extends JComponent {
         charStyle = style;
     }
 
-    public int getCharStyle(int i) {
+    public int getCharStyle() {
         return charStyle;
     }
 
@@ -434,20 +483,36 @@ public class TerminalPane extends JComponent {
         charStyle = (charStyle & ~i);
     }
 
-
     /**
-     * Get the system clip-board content.
+     * Binds the scrollback-buffer to a scrollbar.
+     * If scrollback-buffer is enabled, the panel will show the area according to the position of the scrollbar.
+     * The scrollbar will be configured to reflect the scrollback-buffer. The scrollbar will be disabled if an alternative screen is active.
+     *
+     * @param scrollbar The scrollbar, can be null.
      */
-    public String getClipboardContents() {
-        try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            Transferable contents = clipboard.getContents(null);
-            if (contents != null && contents.isDataFlavorSupported(DataFlavor.stringFlavor)) {
-                return (String) contents.getTransferData(DataFlavor.stringFlavor);
+    public void setScrollbar(JScrollBar scrollbar) {
+        if (this.scrollbar != scrollbar) {
+            if (this.scrollbar != null)
+                this.scrollbar.getModel().removeChangeListener(scrollbarChangeListerer);
+            this.scrollbar = scrollbar;
+            if (scrollbar != null) {
+                scrollbar.getModel().addChangeListener(scrollbarChangeListerer);
+                scrollbar.setEnabled(activeScreen == 0);
+                configureScrollbar();
             }
-        } catch (Exception e) {
         }
-        return "";
+    }
+
+    protected void configureScrollbar() {
+        if (activeScreen == 0 && scrollbar != null) {
+            scrollbar.setMinimum(0);
+            scrollbar.setValue(activeScreenBuffer.topScrollBuffer.size());
+            scrollbar.setBlockIncrement(termHeight);
+            scrollbar.setVisibleAmount(termHeight);
+            scrollbar.setMaximum(activeScreenBuffer.bottomScrollBuffer.size() + activeScreenBuffer.topScrollBuffer.size() + termHeight);
+            System.out.println("Scrollbar: " + scrollbar.getValue() + " [" + scrollbar.getMinimum() + "," + scrollbar.getMaximum() + "] va " + scrollbar.getVisibleAmount());
+        }
+
     }
 
     public void setConnected(boolean connected, String message) {
@@ -486,6 +551,7 @@ public class TerminalPane extends JComponent {
             if (!repaintPending) {
                 repaintPending = true;
                 SwingUtilities.invokeLater(() -> {
+                    repaintPending = false;
                     Rectangle r = repaintArea;
                     repaintArea = null;
                     if (r == null)
@@ -508,6 +574,13 @@ public class TerminalPane extends JComponent {
 
     public int getLeftPageMargin() {
         return charWidth * 4;
+    }
+
+    /**
+     * Get Y - position where the first terminal line is shown.
+     */
+    public int getBaseY() {
+        return baseY;
     }
 
     static final class XC {
@@ -577,6 +650,7 @@ public class TerminalPane extends JComponent {
             while (term.size() < termHeight) {
                 term.add(new XC[termWidth]);
             }
+            configureScrollbar();
         }
 
         public void clear() {
@@ -585,6 +659,7 @@ public class TerminalPane extends JComponent {
             term.clear();
             setMargins(0, termHeight - 1);
             ensureSpace();
+            configureScrollbar();
             repaint = true;
         }
 
@@ -595,6 +670,7 @@ public class TerminalPane extends JComponent {
                 term.add(marginBottom, new XC[termWidth]);
             else
                 term.add(marginBottom, bottomScrollBuffer.remove(bottomScrollBuffer.size() - 1));
+            configureScrollbar();
             repaint = true;
         }
 
@@ -602,6 +678,7 @@ public class TerminalPane extends JComponent {
             bottomScrollBuffer.add(term.remove(marginBottom));
             XC[] top = topScrollBuffer.isEmpty() ? new XC[0] : topScrollBuffer.remove(topScrollBuffer.size() - 1);
             term.add(marginTop, top);
+            configureScrollbar();
             repaint = true;
             System.out.println("After ScrollUp: [" + marginTop + "," + marginBottom + "] term:" + term.size());
         }
